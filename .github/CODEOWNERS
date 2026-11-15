@@ -1,0 +1,46 @@
+# Owners must have repository write access. Branch protection requires their review.
+# This owner cannot approve their own PR: add an independent authorized reviewer
+# before merging owner-authored changes. Git review is not clinical rule approval.
+
+# Safety-critical pipeline and supported legacy copies.
+/backend/Services/PipelineResultPolicy.cs @AbdelrhmanMuhamed978
+/pipeline.py @AbdelrhmanMuhamed978
+/facts.py @AbdelrhmanMuhamed978
+/clinical-rag/pipeline.py @AbdelrhmanMuhamed978
+/clinical-rag/facts.py @AbdelrhmanMuhamed978
+/pipeline_service/ @AbdelrhmanMuhamed978
+
+# Rule approval, workspace approval authority, and approved-rule projection.
+/backend/Services/RuleService.cs @AbdelrhmanMuhamed978
+/backend/Services/RuleValidation.cs @AbdelrhmanMuhamed978
+/backend/Controllers/RulesController.cs @AbdelrhmanMuhamed978
+/backend/Controllers/DrugCatalogController.cs @AbdelrhmanMuhamed978
+/backend/Controllers/AnalysisController.cs @AbdelrhmanMuhamed978
+/backend/Models/RuleDtos.cs @AbdelrhmanMuhamed978
+/backend/Models/Entities.cs @AbdelrhmanMuhamed978
+/backend/Attributes/WorkspaceAuthorizeAttribute.cs @AbdelrhmanMuhamed978
+/backend/Data/ @AbdelrhmanMuhamed978
+/frontend/src/lib/rules.ts @AbdelrhmanMuhamed978
+/frontend/src/components/rules/ @AbdelrhmanMuhamed978
+/frontend/src/app/(app)/w/*/rules/ @AbdelrhmanMuhamed978
+/frontend/src/app/(app)/w/*/settings/ @AbdelrhmanMuhamed978
+/backend.Tests/Rule*.cs @AbdelrhmanMuhamed978
+
+# Owner-only publication and safety regression evidence.
+/backend/Services/ConfigService.cs @AbdelrhmanMuhamed978
+/backend/Services/ConfigTestRuns.cs @AbdelrhmanMuhamed978
+/backend/Services/ConfigValidation.cs @AbdelrhmanMuhamed978
+/backend/Controllers/ConfigController.cs @AbdelrhmanMuhamed978
+/backend/Services/TestHarnessService.cs @AbdelrhmanMuhamed978
+/tests/test_pipeline_safety.py @AbdelrhmanMuhamed978
+/tests/test_pipeline_service.py @AbdelrhmanMuhamed978
+/tests/test_rule_facts.py @AbdelrhmanMuhamed978
+
+# Review/CI governance must itself be reviewed.
+/.github/ @AbdelrhmanMuhamed978
+/.github/CODEOWNERS @AbdelrhmanMuhamed978
+/.github/workflows/ci.yml @AbdelrhmanMuhamed978
+/tests/test_ci_governance.py @AbdelrhmanMuhamed978
+/tests/test_repository_hygiene.py @AbdelrhmanMuhamed978
+/.gitignore @AbdelrhmanMuhamed978
+/README.md @AbdelrhmanMuhamed978
