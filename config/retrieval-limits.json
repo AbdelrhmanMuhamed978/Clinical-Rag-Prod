@@ -1,0 +1,8 @@
+{
+  "embeddingBatchSize": 32,
+  "maxEmbeddingBatchSize": 32,
+  "maxEmbeddingDimensions": 16384,
+  "maxRerankPassages": 30,
+  "maxRerankPassageCharacters": 2000,
+  "rrfK": 60
+}

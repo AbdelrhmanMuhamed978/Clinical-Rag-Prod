@@ -1,0 +1,9 @@
+.confirmation:modal {
+  overscroll-behavior: contain;
+}
+
+.confirmation::backdrop {
+  background: rgb(15 23 42 / 40%);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}

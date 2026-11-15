@@ -1,0 +1,63 @@
+# Build products, dependency installs and caches (at any depth).
+bin/
+obj/
+node_modules/
+.vs/
+.vscode/
+.next/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.tsbuildinfo
+coverage/
+TestResults/
+
+# Local environment files; reviewed example templates remain versioned.
+.env
+*.env
+.env.*
+*.env.*
+!.env.example
+appsettings.Local.json
+# Existing configured file contains a local Firebase key; use the safe example.
+/backend/appsettings.json
+/test_e2e.ps1
+/clinical-rag/test_e2e.ps1
+# Raw conversation export and captures are unreviewed local evidence, not source.
+/docs/clinicalrag-system-context.json
+/docs/validation/**/*.png
+/docs/validation/**/*.webm
+
+# Uploaded data, local databases, credentials and protected-key material.
+uploads/
+key-ring/
+key-rings/
+DataProtection-Keys/
+*.dpapi
+*.key
+*.pem
+*.pfx
+*.p12
+service-account*.json
+serviceAccount*.json
+credentials.json
+*.mdf
+*.ldf
+*.db
+*.sqlite
+*.sqlite3
+
+# Runtime logs and generated source archives, not evaluation evidence.
+logs/
+*.log
+*.log.*
+*.out
+*.err
+*.zip
+.agents/
+
+# eval/results is deliberately NOT ignored. Preserve successes and failures.

@@ -1,0 +1,132 @@
+{
+  "version": "2026-11-15",
+  "status": "DRAFT: pending clinician review",
+  "provenance": "Public pages fetched and the medicines-in-AKI PDF extracted on 2026-11-15. These are disabled import candidates, not runtime policy. Creatinine and blood-pressure cutoffs are unvalidated local review triggers, not source-endorsed diagnostic or treatment thresholds.",
+  "rules": [
+    {
+      "id": "acei_arb_hypotension",
+      "title": "ACE inhibitor / ARB: low blood-pressure review screen",
+      "status": "draft", "enabled": false,
+      "drug_classes": ["acei_arb"],
+      "applies_when": {"any": [
+        {"field": "sbp", "op": "<", "value": 90},
+        {"field": "map", "op": "<", "value": 65}
+      ]},
+      "level": "individual_review",
+      "message": "Review ACE inhibitor / ARB use and the indication in the clinical context of low blood pressure. The cited expert discussion addresses temporary suspension during acute hypotension, not an automatic action based on this screen.",
+      "caveat": "SBP <90 and MAP <65 are unvalidated local screening cutoffs, not thresholds specified by this source. Low blood pressure alone does not establish shock. Assess perfusion, volume state and the original indication; this screen must not cause reflex cessation in heart failure.",
+      "sources": [
+        {"title": "Jones M, Tomson C. Acute kidney injury and 'nephrotoxins': mind your language. Clin Med 2018;18(5):384-6", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6334116/", "quote": "It is logical to suspend all antihypertensive drugs, including ACEI and ARB, during management of acute hypotension.", "retrieved_on": "2026-11-15", "source_status": "expert discussion"}
+      ],
+      "link_terms": "angiotensin|\\bACE\\b|\\bARBs?\\b|renin|\\bRAAS\\b",
+      "case_level": false
+    },
+    {
+      "id": "nsaid_renal_perfusion_review",
+      "title": "NSAID: kidney-function / low blood-pressure review screen",
+      "status": "draft", "enabled": false,
+      "drug_classes": ["nsaid"],
+      "applies_when": {"any": [
+        {"field": "creatinine", "op": ">=", "value": 1.5},
+        {"field": "sbp", "op": "<", "value": 90},
+        {"field": "map", "op": "<", "value": 65}
+      ]},
+      "level": "individual_review",
+      "message": "Review NSAID exposure and seek medication/dosing advice if the clinical assessment establishes AKI or AKI risk. Confirm creatinine baseline/trend, urine output and clinical perfusion/volume state rather than treating this numeric screen as a diagnosis.",
+      "caveat": "Creatinine ≥1.5 mg/dL, SBP <90 and MAP <65 are unvalidated local review triggers, not NICE diagnostic or stopping criteria. Medication mentions do not establish current use, dose, timing or indication. The automatic diagnosed-AKI/hypovolaemia branches remain TODO.",
+      "sources": [
+        {"title": "NICE NG148, recommendation 1.2.13: medication optimisation in or at risk of AKI", "url": "https://www.nice.org.uk/guidance/ng148/chapter/Recommendations", "quote": "Seek advice from a pharmacist about optimising medicines and drug dosing in adults, children and young people with or at risk of acute kidney injury.", "retrieved_on": "2026-11-15"},
+        {"title": "Jones and Tomson 2018: NSAIDs in the context of AKI risk", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6334116/", "quote": "Whereas stopping NSAIDs is nearly certainly beneficial in this context, the evidence that stopping ACEIs or ARBs prevents AKI is very limited.", "retrieved_on": "2026-11-15", "source_status": "expert discussion"}
+      ],
+      "link_terms": "kidney|renal|\\bAKI\\b|NSAIDs?|anti-inflammatory", "case_level": false
+    },
+    {
+      "id": "antithrombotic_platelets_below_50",
+      "title": "Anticoagulant / antiplatelet: platelets below 50 ×10⁹/L",
+      "status": "draft", "enabled": false,
+      "drug_classes": ["anticoagulant", "antiplatelet"],
+      "applies_when": {"any": [{"field": "platelets", "op": "<", "value": 50}]},
+      "level": "individual_review",
+      "message": "Review anticoagulation or antiplatelet therapy with the treating clinician: the cited NHS Highland guidance states these drugs are usually avoided below 50 ×10⁹/L. Individual indication, thrombocytopenia aetiology/stability and bleeding concerns require clinical assessment.",
+      "caveat": "This is a regional guideline, not a universal stopping mandate. Platelet count is not a bleeding diagnosis, and a count above this cutoff does not establish safety. The active-bleeding branch remains TODO because bleeding is not a supported condition field.",
+      "sources": [
+        {"title": "NHS Highland TAM: Thrombocytopenia guidelines, reviewed 29 January 2024", "url": "https://www.rightdecisions.scot.nhs.uk/tam-treatments-and-medicines-nhs-highland/therapeutic-guidelines/haematology/thrombocytopenia-guidelines", "quote": "Anticoagulation or antiplatelet drugs are usually avoided when the platelet count is below 50 × 10⁹/L and are safe when the platelet count is above 80 × 10⁹/L.", "retrieved_on": "2026-11-15", "quote_note": "Superscript 9 and page whitespace normalised; wording unchanged."}
+      ],
+      "link_terms": "platelet|thrombocytopen|anticoag|antiplatelet|bleed", "case_level": false
+    },
+    {
+      "id": "metformin_kidney_function_review",
+      "title": "Metformin: kidney-function review screen",
+      "status": "draft", "enabled": false,
+      "drug_classes": ["metformin"],
+      "applies_when": {"any": [{"field": "creatinine", "op": ">=", "value": 1.5}]},
+      "level": "individual_review",
+      "message": "Review renal function and metformin use with the treating clinician. Apply the product's eGFR-based guidance only when an appropriate eGFR and clinical assessment are available; this creatinine-only screen does not implement its discontinuation criteria.",
+      "caveat": "Creatinine ≥1.5 mg/dL is an unvalidated local review trigger, not an AKI diagnosis, eGFR calculation or metformin stopping threshold. The diagnosed-AKI and confirmed shock/hypoxic-event branches remain TODO; low BP alone must not be labelled shock.",
+      "sources": [
+        {"title": "DailyMed: Metformin hydrochloride, warnings and precautions 5.1", "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=fb296500-55cb-45ce-be0c-59aa2e3d4624", "quote": "In patients at risk for the development of renal impairment (e.g., the elderly), renal function should be assessed more frequently.", "retrieved_on": "2026-11-15"},
+        {"title": "Think Kidneys: Medicines Optimisation in AKI, June 2015 (DRAFT), page 3; metformin table page 10", "url": "https://rcp.ac.uk/media/gkigl12m/guidelines-for-medicines-optimisation-in-patients-with-aki-in-secondary-care.pdf", "quote": "Hence it is necessary to review the use of these medications and amend the doses appropriate to the level of the patient’s renal function.", "retrieved_on": "2026-11-15", "source_status": "draft", "quote_note": "Extracted PDF whitespace normalised. This sentence does not endorse the screening cutoff."}
+      ],
+      "link_terms": "metformin|kidney|renal|\\bAKI\\b|lactic", "case_level": false
+    },
+    {
+      "id": "nephrotoxin_kidney_function_review",
+      "title": "Aminoglycoside / potential nephrotoxin: kidney-function review screen",
+      "status": "draft", "enabled": false,
+      "drug_classes": ["aminoglycoside", "nephrotoxin"],
+      "applies_when": {"any": [{"field": "creatinine", "op": ">=", "value": 1.5}]},
+      "level": "individual_review",
+      "message": "Seek pharmacist advice about medicine optimisation and dosing if the clinical assessment establishes AKI or AKI risk. Confirm the drug, formulation, exposure, baseline kidney function and relevant drug-level monitoring rather than treating a class label as a dose instruction.",
+      "caveat": "Creatinine ≥1.5 mg/dL is an unvalidated local review trigger, not an AKI diagnosis. 'Potential nephrotoxin' is context dependent, and class membership is not a universal contraindication. The diagnosed-AKI branch and drug-specific dosing/monitoring rules remain TODO.",
+      "sources": [
+        {"title": "NICE NG148, recommendation 1.2.13: medicines and drug dosing in or at risk of AKI", "url": "https://www.nice.org.uk/guidance/ng148/chapter/Recommendations", "quote": "Seek advice from a pharmacist about optimising medicines and drug dosing in adults, children and young people with or at risk of acute kidney injury.", "retrieved_on": "2026-11-15"},
+        {"title": "Think Kidneys: Medicines Optimisation in AKI, June 2015 (DRAFT), page 3; aminoglycoside table page 6", "url": "https://rcp.ac.uk/media/gkigl12m/guidelines-for-medicines-optimisation-in-patients-with-aki-in-secondary-care.pdf", "quote": "The term ‘nephrotoxic’ should be used with caution.", "retrieved_on": "2026-11-15", "source_status": "draft"}
+      ],
+      "link_terms": "kidney|renal|\\bAKI\\b|aminoglycoside|gentamicin|amikacin|vancomycin", "case_level": false
+    },
+    {
+      "id": "qt_drugs_low_potassium_magnesium",
+      "title": "QT-prolonging drugs: low potassium / magnesium review",
+      "status": "draft", "enabled": false,
+      "drug_classes": ["qt_prolonging"],
+      "applies_when": {"any": [
+        {"field": "potassium", "op": "<", "value": 3.5},
+        {"field": "magnesium", "op": "<", "value": 1.8}
+      ]},
+      "level": "individual_review",
+      "message": "Review QT-prolonging medication and electrolyte deficiencies with the treating clinician. The cited review advises rectifying hypokalaemia and hypomagnesaemia; correction, ECG assessment and medication decisions require individual clinical review.",
+      "caveat": "The numeric cutoffs are MSD definitions of low potassium/magnesium, not drug-specific stop thresholds or a torsades diagnosis. QTc, formulation, interactions and the indication are not evaluated. The catalog is a recognition aid, not a complete QT-risk database.",
+      "sources": [
+        {"title": "Khatib et al.: Managing drug-induced QT prolongation in clinical practice", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8237186/", "quote": "In particular, electrolyte deficiencies such as hypokalaemia and hypomagnesaemia should be rectified, with the aim of increasing levels towards the higher end of the normal range.", "retrieved_on": "2026-11-15"},
+        {"title": "MSD Manual Professional: Hypokalemia", "url": "https://www.msdmanuals.com/professional/endocrine-and-metabolic-disorders/electrolyte-disorders/hypokalemia", "quote": "Hypokalemia is serum potassium concentration < 3.5 mEq/L (< 3.5 mmol/L) caused by a deficit in total body potassium stores or abnormal movement of potassium into cells.", "retrieved_on": "2026-11-15", "quote_note": "Page inline symbols and whitespace normalised."},
+        {"title": "MSD Manual Professional: Hypomagnesemia", "url": "https://www.msdmanuals.com/professional/endocrine-and-metabolic-disorders/electrolyte-disorders/hypomagnesemia", "quote": "Hypomagnesemia is serum magnesium concentration < 1.8 mg/dL (< 0.70 mmol/L).", "retrieved_on": "2026-11-15", "quote_note": "Page inline symbols and whitespace normalised."}
+      ],
+      "link_terms": "\\bQT\\b|QTc|torsades|potassium|magnesium|hypokala?em|hypomagnes", "case_level": false
+    },
+    {
+      "id": "potassium_sparing_high_potassium_review",
+      "title": "Potassium-sparing diuretic: high potassium / kidney-function review",
+      "status": "draft", "enabled": false,
+      "drug_classes": ["potassium_sparing"],
+      "applies_when": {"any": [
+        {"field": "potassium", "op": ">", "value": 5.5},
+        {"field": "creatinine", "op": ">=", "value": 1.5}
+      ]},
+      "level": "individual_review",
+      "message": "Review potassium-sparing diuretic use, potassium and kidney function with the treating clinician. The cited sources identify medication adjustment as part of hyperkalaemia care and medication review in AKI; this screen supplies neither a treatment protocol nor a class-wide stop instruction.",
+      "caveat": "Potassium >5.5 mmol/L follows the MSD definition. Creatinine ≥1.5 mg/dL is an unvalidated local review trigger, not an AKI diagnosis. Do not generalise a spironolactone label to every potassium-sparing drug. The diagnosed-AKI and drug-specific treatment branches remain TODO; the AKI PDF itself is DRAFT.",
+      "sources": [
+        {"title": "MSD Manual Professional: Hyperkalemia", "url": "https://www.msdmanuals.com/professional/endocrine-and-metabolic-disorders/electrolyte-disorders/hyperkalemia", "quote": "Hyperkalemia is a serum potassium concentration > 5.5 mEq/L (> 5.5 mmol/L), usually resulting from decreased renal potassium excretion or abnormal movement of potassium out of cells.", "retrieved_on": "2026-11-15"},
+        {"title": "MSD Manual Professional: Hyperkalemia, treatment overview", "url": "https://www.msdmanuals.com/professional/endocrine-and-metabolic-disorders/electrolyte-disorders/hyperkalemia", "quote": "Treatment may involve decreasing potassium intake, adjusting medications, giving a cation exchange resin and, in emergencies, giving calcium gluconate, insulin, and dialysis.", "retrieved_on": "2026-11-15", "quote_note": "Whitespace around inline drug links normalised; no emergency protocol is implemented by this rule."},
+        {"title": "Think Kidneys: Medicines Optimisation in AKI, June 2015 (DRAFT), page 3; potassium-sparing diuretic table page 10", "url": "https://rcp.ac.uk/media/gkigl12m/guidelines-for-medicines-optimisation-in-patients-with-aki-in-secondary-care.pdf", "quote": "When a patient is either admitted with AKI, or develops AKI during an admission episode, a thorough review of medication is required in order to:", "retrieved_on": "2026-11-15", "source_status": "draft", "quote_note": "Lead-in sentence from PDF page 3; table actions are not generalised into automatic treatment."}
+      ],
+      "link_terms": "potassium|hyperkala?em|kidney|renal|\\bAKI\\b|spironolactone|amiloride|eplerenone", "case_level": false
+    }
+  ],
+  "todos": [
+    {"branch": "Diagnosed AKI for NSAIDs, metformin, aminoglycosides/potential nephrotoxins and potassium-sparing diuretics", "reason": "No baseline/time-indexed creatinine trend or urine-output input is available. The supported fields deliberately do not include an aki boolean. An isolated creatinine ≥1.5 mg/dL does not implement NICE/KDIGO AKI criteria.", "source_url": "https://www.nice.org.uk/guidance/ng148/chapter/Recommendations"},
+    {"branch": "Metformin in confirmed shock / a hypoxic event", "reason": "No validated shock/hypoxic-event input is available. SBP, MAP, shock_index and SpO2 alone must not establish this event or trigger automatic discontinuation.", "source_url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=fb296500-55cb-45ce-be0c-59aa2e3d4624", "source_quote": "When such an event occurs, discontinue metformin hydrochloride."},
+    {"branch": "Anticoagulants with active bleeding", "reason": "Bleeding is not a supported condition field. A low platelet count or a medication mention cannot establish active bleeding.", "source_url": "https://www.rightdecisions.scot.nhs.uk/tam-treatments-and-medicines-nhs-highland/therapeutic-guidelines/haematology/thrombocytopenia-guidelines"},
+    {"branch": "Drug-specific hyperkalaemia actions and comprehensive regional/QT/nephrotoxin catalog validation", "reason": "Class-level recognition is insufficient for product-specific dosing, indication, exposure and risk. Names are editable screening aliases requiring local catalog validation, not independently verified clinical assertions for every formulation."}
+  ]
+}

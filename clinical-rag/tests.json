@@ -1,0 +1,53 @@
+{
+  "version": "2026-11-15",
+  "status": "DRAFT: pending clinician review",
+  "provenance": "Seed cases imported into a workspace. Expectations are marked needs clinician review and contain no gold answers; clinicians must supply and verify them before using results for publication gating.",
+  "cases": [
+    {
+      "name": "ICU septic shock and pneumonia",
+      "inputText": "a 86 years old female patient admitted to the ER, hypotensive blood pressure 80/50, feverish 38.5 degree, dyspnea, cough, desaturated on room air ER vitals: temperature: 38.5, blood pressure: 80/50, spo2: 85 %, HR: 110, RR: 30 past medication history: on concor 2.5 mg, Targ 80, aspirin 75 mg once daily, plavix 75 mg once daily CT chest: consolidation right lower lobe pneumonia. labs: Hb: 9.5, TLC: 22,000, platelet: 25,000, srcr: 2.5, k: 3, mg: 1.6, albumin: 2.5",
+      "expectedJson": {
+        "mustHaveProblems": ["Septic shock and hypotension"],
+        "mustNotHaveProblems": [],
+        "mustFlag": ["hypotension", "aki_possible"],
+        "mustFireRules": [],
+        "minVerifiedItemsPerProblem": 1,
+        "requireDraftWarning": true,
+        "forbiddenPhrases": [],
+        "noUnverifiedShown": false
+      }
+    },
+    {
+      "name": "HIV advanced disease with opportunistic infection",
+      "inputText": "42-year-old patient with advanced HIV disease, CD4 count 48 cells/uL, presenting with fever, weight loss, and pulmonary symptoms. Chest imaging shows diffuse infiltrates. Sputum PCR positive for Pneumocystis jirovecii. Currently on trimethoprim-sulfamethoxazole prophylaxis.",
+      "expectedJson": {
+        "mustHaveProblems": [],
+        "mustNotHaveProblems": [],
+        "mustFlag": [],
+        "mustFireRules": [],
+        "minVerifiedItemsPerProblem": 0,
+        "requireDraftWarning": true,
+        "forbiddenPhrases": [],
+        "noUnverifiedShown": false
+      }
+    },
+    {
+      "name": "HIV with tuberculosis co-infection",
+      "inputText": "38-year-old patient with known HIV infection not on antiretroviral therapy, presenting with chronic cough, night sweats, and weight loss. Sputum AFB smear positive. Chest X-ray shows upper lobe cavitary lesions.",
+      "expectedJson": {
+        "mustHaveProblems": [],
+        "mustNotHaveProblems": [],
+        "mustFlag": [],
+        "mustFireRules": [],
+        "minVerifiedItemsPerProblem": 0,
+        "requireDraftWarning": true,
+        "forbiddenPhrases": [],
+        "noUnverifiedShown": false
+      }
+    }
+  ],
+  "todos": [
+    {"branch": "ICU septic-shock/pneumonia case expectations", "reason": "Clinician must verify which problem titles, flags, and verified-item counts are correct for this case. No gold answers invented.", "source_url": "tests/test_v32.py"},
+    {"branch": "HIV advanced-disease case expectations", "reason": "Clinician must supply problem titles, flags, and rules that should fire for these cases. No gold answers invented.", "source_url": "saved Playground page"}
+  ]
+}

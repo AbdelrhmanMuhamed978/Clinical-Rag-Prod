@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
+    "modern-web-guidance": {
+      "source": "googlechrome/modern-web-guidance",
+      "sourceType": "github",
+      "skillPath": "skills/modern-web-guidance/SKILL.md",
+      "computedHash": "3eeead58b609ef1587927559438a7b54333011f01c7c4f319b3a7c6f0c88f74c"
+    },
+    "rag-implementation": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/llm-application-dev/skills/rag-implementation/SKILL.md",
+      "computedHash": "895983bfecb93fe72e0fbb319f62a7204a4742c3ad9d282d9de53bfc65001cb3"
+    },
+    "website-builder": {
+      "source": "flowkit-labs/skills",
+      "sourceType": "github",
+      "skillPath": "website-builder/SKILL.md",
+      "computedHash": "27be9849bbddae88f4398cf4ad82f3cc6edbedaf36a21a495daacc3b5865b1a8"
+    }
+  }
+}

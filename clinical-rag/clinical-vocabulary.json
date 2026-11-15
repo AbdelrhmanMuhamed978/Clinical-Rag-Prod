@@ -1,0 +1,41 @@
+{
+  "fields": {
+    "sbp": { "label": "Systolic blood pressure", "unit": "mmHg" },
+    "dbp": { "label": "Diastolic blood pressure", "unit": "mmHg" },
+    "map": { "label": "Mean arterial pressure", "unit": "mmHg" },
+    "hr": { "label": "Heart rate", "unit": "/min" },
+    "rr": { "label": "Respiratory rate", "unit": "/min" },
+    "spo2": { "label": "Oxygen saturation", "unit": "%" },
+    "temp": { "label": "Temperature", "unit": "°C" },
+    "hb": { "label": "Haemoglobin", "unit": "g/dL" },
+    "wbc": { "label": "White blood cells", "unit": "×10⁹/L" },
+    "platelets": { "label": "Platelets", "unit": "×10⁹/L" },
+    "creatinine": { "label": "Creatinine (not an AKI diagnosis)", "unit": "mg/dL" },
+    "potassium": { "label": "Potassium", "unit": "mmol/L" },
+    "magnesium": { "label": "Magnesium", "unit": "mg/dL" },
+    "calcium": { "label": "Calcium", "unit": "mg/dL" },
+    "albumin": { "label": "Albumin", "unit": "g/dL" },
+    "alt": { "label": "ALT", "unit": "U/L" },
+    "ast": { "label": "AST", "unit": "U/L" },
+    "bilirubin": { "label": "Bilirubin", "unit": "mg/dL" },
+    "shock_index": { "label": "Shock index (not a shock diagnosis)", "unit": "ratio" },
+    "qsofa": { "label": "qSOFA (partial if observations missing)", "unit": "score" },
+    "corrected_ca": { "label": "Albumin-corrected calcium", "unit": "mg/dL" },
+    "age": { "label": "Age", "unit": "years" }
+  },
+  "operators": ["<", "<=", ">", ">="],
+  "drug_classes": {
+    "acei_arb": "ACE inhibitor / ARB",
+    "beta_blocker": "Beta blocker",
+    "antiplatelet": "Antiplatelet",
+    "nsaid": "NSAID",
+    "diuretic": "Diuretic",
+    "anticoagulant": "Anticoagulant",
+    "metformin": "Metformin",
+    "aminoglycoside": "Aminoglycoside",
+    "nephrotoxin": "Potential nephrotoxin (context dependent)",
+    "qt_prolonging": "QT-prolonging drug (risk is context dependent)",
+    "potassium_sparing": "Potassium-sparing diuretic"
+  },
+  "statuses": ["draft", "in_review", "approved", "retired"]
+}

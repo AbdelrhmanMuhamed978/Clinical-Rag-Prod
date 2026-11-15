@@ -1,0 +1,4 @@
+# Local operational secrets and protected-key material must never be published.
+**/key-ring/
+**/appsettings.Local.json
+**/.env.local

@@ -1,0 +1,11 @@
+{
+  "scope": "Synthetic exact-term and semantic retrieval regression. Not real clinical guidelines or real model embeddings.",
+  "topics": [
+    { "key": "renal", "section": "Renal monitoring: cystatin", "text": "Synthetic source: cystatin monitoring and a kidney function review.", "exactQuery": "cystatin monitoring", "semanticText": "Synthetic source: kidney surveillance during treatment.", "semanticQuery": "renal follow-up" },
+    { "key": "coagulation", "section": "Coagulation: anti-Xa", "text": "Synthetic source: anti-Xa measurement during anticoagulant review.", "exactQuery": "anti-Xa measurement", "semanticText": "Synthetic source: anticoagulant surveillance during treatment.", "semanticQuery": "coagulation follow-up" },
+    { "key": "infection", "section": "Infection: procalcitonin", "text": "Synthetic source: procalcitonin measurement during an infection assessment.", "exactQuery": "procalcitonin measurement", "semanticText": "Synthetic source: infectious-disease surveillance during treatment.", "semanticQuery": "infection follow-up" },
+    { "key": "pregnancy", "section": "Pregnancy: placental", "text": "Synthetic source: placental review during obstetric monitoring.", "exactQuery": "placental obstetric monitoring", "semanticText": "Synthetic source: maternal surveillance during treatment.", "semanticQuery": "pregnancy follow-up" },
+    { "key": "electrolytes", "section": "Electrolytes: hypomagnesemia", "text": "Synthetic source: hypomagnesemia assessment during electrolyte review.", "exactQuery": "hypomagnesemia assessment", "semanticText": "Synthetic source: mineral surveillance during treatment.", "semanticQuery": "electrolyte follow-up" },
+    { "key": "respiratory", "section": "Respiratory: spirometry", "text": "Synthetic source: spirometry measurement during a respiratory assessment.", "exactQuery": "spirometry measurement", "semanticText": "Synthetic source: lung surveillance during treatment.", "semanticQuery": "pulmonary follow-up" }
+  ]
+}

@@ -1,0 +1,5 @@
+# GPU / Colab-only packages (heavy ML dependencies, not needed by the Python pipeline alone)
+# Install in Python 3.12: vLLM 0.8.5 requires Python <3.13 and Torch 2.6.0.
+vllm==0.8.5
+torch==2.6.0
+sentencepiece==0.2.0

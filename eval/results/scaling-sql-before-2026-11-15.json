@@ -1,0 +1,100 @@
+{
+  "scope": "Offline synthetic regression; fixed vectors, constant reranking, disposable SQL Server database with BM25 fallback. Includes SQL execution but no model/GPU/network-service latency or clinical-quality claim. Not publication evidence.",
+  "fixtureSha256": "e8410b5d6cdaa20561ebb596377d7e03f8b31cdce311c298890cd16f7ff7df77",
+  "generatedAtUtc": "2026-11-15T16:35:58.9533765Z",
+  "runtime": ".NET 10.0.12",
+  "databaseProvider": "sqlserver",
+  "vectorStorage": "float32 binary",
+  "quality": {
+    "queries": 12,
+    "recallAt8": 1,
+    "mrrAt8": 0.7916666666666666,
+    "ndcgAt8": 0.8462207306547741,
+    "candidateRecallAt30": 1,
+    "cases": [
+      {
+        "name": "renal-exact",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "renal-semantic",
+        "relevantRank": 2,
+        "candidateHit": true
+      },
+      {
+        "name": "coagulation-exact",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "coagulation-semantic",
+        "relevantRank": 2,
+        "candidateHit": true
+      },
+      {
+        "name": "infection-exact",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "infection-semantic",
+        "relevantRank": 2,
+        "candidateHit": true
+      },
+      {
+        "name": "pregnancy-exact",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "pregnancy-semantic",
+        "relevantRank": 2,
+        "candidateHit": true
+      },
+      {
+        "name": "electrolytes-exact",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "electrolytes-semantic",
+        "relevantRank": 2,
+        "candidateHit": true
+      },
+      {
+        "name": "respiratory-exact",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "respiratory-semantic",
+        "relevantRank": 1,
+        "candidateHit": true
+      }
+    ]
+  },
+  "performance": {
+    "chunks": 10000,
+    "dimensions": 768,
+    "iterations": 15,
+    "warmupIterations": 3,
+    "measuredPath": "Warm production DoRetrieve with stub embedding/reranking and sqlserver",
+    "p50Milliseconds": 12.179,
+    "p95Milliseconds": 19.11,
+    "maxMilliseconds": 19.11,
+    "storedVectorBytes": 30720000,
+    "targetUnder100Milliseconds": true
+  },
+  "searchPerformance": {
+    "measuredPath": "Warm production CandidatesAsync: cached SIMD dense \u002B BM25 \u002B RRF, no source metadata query or model calls",
+    "chunks": 10000,
+    "dimensions": 768,
+    "iterations": 15,
+    "warmupIterations": 3,
+    "p50Milliseconds": 4.941,
+    "p95Milliseconds": 6.028,
+    "maxMilliseconds": 6.028,
+    "targetUnder100Milliseconds": true
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "scope": "Offline synthetic regression; fixed vectors, constant reranking, EF InMemory. No GPU/network/SQL latency or clinical-quality claim. Not Prompt 11 publication evidence.",
+  "fixtureSha256": "e8410b5d6cdaa20561ebb596377d7e03f8b31cdce311c298890cd16f7ff7df77",
+  "generatedAtUtc": "2026-11-15T10:23:30.2551828Z",
+  "runtime": ".NET 10.0.12",
+  "vectorStorage": "JSON nvarchar",
+  "quality": {
+    "queries": 12,
+    "recallAt8": 0.5,
+    "mrrAt8": 0.5,
+    "ndcgAt8": 0.5,
+    "candidateRecallAt30": 1,
+    "cases": [
+      {
+        "name": "renal-exact",
+        "relevantRank": null,
+        "candidateHit": true
+      },
+      {
+        "name": "renal-semantic",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "coagulation-exact",
+        "relevantRank": null,
+        "candidateHit": true
+      },
+      {
+        "name": "coagulation-semantic",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "infection-exact",
+        "relevantRank": null,
+        "candidateHit": true
+      },
+      {
+        "name": "infection-semantic",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "pregnancy-exact",
+        "relevantRank": null,
+        "candidateHit": true
+      },
+      {
+        "name": "pregnancy-semantic",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "electrolytes-exact",
+        "relevantRank": null,
+        "candidateHit": true
+      },
+      {
+        "name": "electrolytes-semantic",
+        "relevantRank": 1,
+        "candidateHit": true
+      },
+      {
+        "name": "respiratory-exact",
+        "relevantRank": null,
+        "candidateHit": true
+      },
+      {
+        "name": "respiratory-semantic",
+        "relevantRank": 1,
+        "candidateHit": true
+      }
+    ]
+  },
+  "performance": {
+    "chunks": 10000,
+    "dimensions": 768,
+    "iterations": 15,
+    "warmupIterations": 3,
+    "measuredPath": "Warm production DoRetrieve with stub embedding/reranking and EF InMemory",
+    "p50Milliseconds": 1873.831,
+    "p95Milliseconds": 1928.226,
+    "maxMilliseconds": 1928.226,
+    "storedVectorBytes": 189331284,
+    "targetUnder100Milliseconds": false
+  }
+}
