@@ -44,3 +44,4 @@
 /tests/test_repository_hygiene.py @AbdelrhmanMuhamed978
 /.gitignore @AbdelrhmanMuhamed978
 /README.md @AbdelrhmanMuhamed978
+/docs/ci-* @AbdelrhmanMuhamed978

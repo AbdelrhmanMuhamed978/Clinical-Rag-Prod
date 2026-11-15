@@ -48,6 +48,8 @@ Repository administrators must protect `main` with these rules:
 
 These are **server-side GitHub settings**, not protections that `git init`, CODEOWNERS or this README can enforce locally. Confirm the saved branch-protection settings and an actual test-branch Actions run before claiming CI is active. No secrets, uploads, key rings or real case text belong in commits or CI logs. Original audit reports describe the pre-Git workspace; keep that historical evidence unchanged.
 
+See [CI validation and current red items](docs/ci-validation.md) and the [saved main-protection verification](docs/ci-main-protection.json). The workflow/PR template/CODEOWNERS are initially on `ci/review-gates`; they are not on `main` until a green, independently reviewed merge. GitHub uses the **base branch's CODEOWNERS** for file-owner matching; do not bypass the required checks to bootstrap it.
+
 ### 1. Colab
 
 Open `colab/clinical_rag_colab.ipynb` with a GPU runtime and run the cells in order. Configure `COLAB_API_KEY` (16–4096 printable ASCII characters without spaces), `ASPNET_BACKEND_URL` (public HTTPS backend origin) and `COLAB_REGISTRATION_SECRET` in Colab Secrets **before** starting the public tunnel. The registration secret must match backend `Colab__RegistrationSecret`; the backend must already be running with the operations migration applied. All model, legacy retrieval, parsing and chunking routes require `X-Colab-Key`; only minimal `/health` is public. Long chunking operations use `/chunk/jobs` and are polled by ASP.NET.

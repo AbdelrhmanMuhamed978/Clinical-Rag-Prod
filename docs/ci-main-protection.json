@@ -1,0 +1,31 @@
+{
+  "repository": "AbdelrhmanMuhamed978/Clinical-Rag-Prod",
+  "branch": "main",
+  "verification": "Selected fields from a successful GET /repos/AbdelrhmanMuhamed978/Clinical-Rag-Prod/branches/main/protection after applying protection and binding checks to the observed github-actions app.",
+  "required_status_checks": {
+    "strict": true,
+    "checks": [
+      {"context": "dotnet", "app_id": 15368},
+      {"context": "pytest", "app_id": 15368},
+      {"context": "frontend", "app_id": 15368},
+      {"context": "secret-scan", "app_id": 15368},
+      {"context": "ci-gate", "app_id": 15368}
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": true,
+    "require_last_push_approval": true,
+    "required_approving_review_count": 1
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_conversation_resolution": true,
+  "limitations": [
+    "This personal repository has no organization-only user/team restrictions or bypass allowance fields; none were configured. Administrator enforcement remains enabled.",
+    "The workflow and CODEOWNERS are on the test branch, not yet merged into main. File-owner matching for PRs uses the base branch's CODEOWNERS; safety-path ownership becomes active after a properly reviewed, green merge.",
+    "The sole repository owner cannot independently approve their own PR. An additional authorized reviewer is required; no reviewer was invented or invited."
+  ]
+}
