@@ -29,6 +29,9 @@ public sealed class WorkspaceAuthorizeAttribute : Attribute, IAsyncAuthorization
         _minRole = minRole;
     }
 
+    /// <summary>The minimum workspace role this filter requires.</summary>
+    public WorkspaceRole MinimumRole => _minRole;
+
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         if (context == null) throw new ArgumentNullException(nameof(context));

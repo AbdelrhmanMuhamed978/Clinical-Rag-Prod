@@ -1,0 +1,14 @@
+{
+  "format": 1, "synthetic": true, "observation": "postfix-4b", "captureKind": "post-fix-recorded-context-live-generation",
+  "model": "Qwen/Qwen3-4B-Instruct-2507", "retrievalRerun": false,
+  "problems": [
+    {"index": 1, "title": "What is the dummy kidney-function review marker on page 3 of the FINAL synthetic protocol?",
+     "sources": {"S1":"final-kidney", "S2":"final-pressure", "S3":"draft-kidney", "S4":"final-medication", "S5":"draft-pressure", "S6":"draft-medication"},
+     "output": {"response":"SOURCE: S1  \nRECOMMENDATION: The dummy kidney-function review marker is GREEN.  \nQUOTE: The dummy kidney-function review marker is GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.  \n\nSOURCE: S3  \nRECOMMENDATION: The dummy kidney-function review marker is PENDING-GREEN.  \nQUOTE: The dummy kidney-function review marker is PENDING-GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.  \n\nNOT_FOUND", "finish_reason":"stop", "truncated":false},
+     "expected":{"verified":1, "reasons":{"quote_not_found":1}}},
+    {"index": 2, "title": "What does the DRAFT synthetic protocol say about creatinine review?",
+     "sources":{"S1":"final-kidney", "S2":"final-pressure", "S3":"final-medication", "S4":"draft-kidney", "S5":"draft-pressure", "S6":"draft-medication"},
+     "output":{"response":"SOURCE: S4  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury. The dummy kidney-function review marker is PENDING-GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction. Baseline measurements, changes over time and relevant clinical assessment are not supplied by this document. The synthetic case below must not be used as real patient data or to certify clinical performance.  \n\nSOURCE: S1  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury. The dummy kidney-function review marker is GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction. Baseline measurements, changes over time and relevant clinical assessment are not supplied by this document. The synthetic case below must not be used as real patient data or to certify clinical performance.", "finish_reason":"stop", "truncated":false},
+     "expected":{"verified":0, "reasons":{"negation_conflict":2}}}
+  ]
+}

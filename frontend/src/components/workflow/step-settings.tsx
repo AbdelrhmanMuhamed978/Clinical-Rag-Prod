@@ -3,7 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { FIELD_LABELS, PROMPT_RULES, RETRIEVAL_KEYS, RETRIEVAL_RULES, isJsonObject,
   type JsonObject, type WorkflowErrors, type WorkflowField, type WorkflowFields } from "@/lib/workflow-config";
-import vocabulary from "../../../../clinical-vocabulary.json";
+import vocabulary from "../../../../python-backend/clinical-vocabulary.json";
 
 type Props = { step: number; fields: WorkflowFields; errors: WorkflowErrors; base: JsonObject; readOnly: boolean;
   onChange: (key: WorkflowField, value: string) => void };

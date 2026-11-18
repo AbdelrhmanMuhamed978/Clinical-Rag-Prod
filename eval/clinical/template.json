@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "labelSource": "clinician",
+  "instructionsVersion": "1.0",
+  "clinician": {
+    "name": "",
+    "role": "",
+    "organisation": "",
+    "labelledAt": "",
+    "attestation": ""
+  },
+  "guidelineCorpus": {
+    "description": "",
+    "documentNames": []
+  },
+  "cases": []
+}

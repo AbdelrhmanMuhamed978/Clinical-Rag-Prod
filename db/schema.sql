@@ -905,3 +905,371 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261115210819_TrustedTestEvidence'
+)
+BEGIN
+    ALTER TABLE [TestRuns] ADD [CaseRevision] int NOT NULL DEFAULT 0;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261115210819_TrustedTestEvidence'
+)
+BEGIN
+    ALTER TABLE [TestRuns] ADD [FailureCode] nvarchar(32) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261115210819_TrustedTestEvidence'
+)
+BEGIN
+    ALTER TABLE [TestCases] ADD [Revision] int NOT NULL DEFAULT 1;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261115210819_TrustedTestEvidence'
+)
+BEGIN
+    ALTER TABLE [TestCases] ADD [UpdatedAt] datetime2 NOT NULL DEFAULT '0001-01-01T00:00:00.0000000';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261115210819_TrustedTestEvidence'
+)
+BEGIN
+    EXEC(N'UPDATE [TestCases] SET [UpdatedAt] = SYSUTCDATETIME(), [LastRunJson] = NULL, [LastRunAt] = NULL;');
+    EXEC(N'UPDATE [TestRuns] SET [Diff] = N''Legacy test evidence is untrusted. Rerun tests.'',
+        [FailureCode] = CASE WHEN [Status] = N''failed'' THEN N''invalid_result'' ELSE NULL END;');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261115210819_TrustedTestEvidence'
+)
+BEGIN
+    CREATE INDEX [IX_TestCases_WorkspaceId] ON [TestCases] ([WorkspaceId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261115210819_TrustedTestEvidence'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261115210819_TrustedTestEvidence', N'10.0.0');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116055446_NeedsOcrPages'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [NeedsOcrPages] nvarchar(1024) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116055446_NeedsOcrPages'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261116055446_NeedsOcrPages', N'10.0.0');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Workspaces] ADD [AllowSupersededGuidelines] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Rules] ADD [ApprovedSourceUrl] nvarchar(2048) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Rules] ADD [ReviewerName] nvarchar(256) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [EffectiveDate] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [PermissionNote] nvarchar(1024) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [ReviewByDate] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [SourceUrl] nvarchar(2048) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [Title] nvarchar(512) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [Version] nvarchar(64) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    CREATE TABLE [AnswerFlags] (
+        [Id] uniqueidentifier NOT NULL,
+        [WorkspaceId] uniqueidentifier NOT NULL,
+        [AnalysisRunId] uniqueidentifier NOT NULL,
+        [ConfigVersion] int NULL,
+        [Reason] nvarchar(32) NOT NULL,
+        [Note] nvarchar(1000) NULL,
+        [CreatedBy] uniqueidentifier NULL,
+        [CreatedAt] datetime2 NOT NULL,
+        CONSTRAINT [PK_AnswerFlags] PRIMARY KEY ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    CREATE INDEX [IX_AnswerFlags_AnalysisRunId] ON [AnswerFlags] ([AnalysisRunId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    CREATE INDEX [IX_AnswerFlags_WorkspaceId_CreatedAt] ON [AnswerFlags] ([WorkspaceId], [CreatedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116063455_GovernanceRegistryFlags'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261116063455_GovernanceRegistryFlags', N'10.0.0');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116081534_SearchGenerationCoherence'
+)
+BEGIN
+    ALTER TABLE [Workspaces] ADD [SearchGeneration] bigint NOT NULL DEFAULT CAST(0 AS bigint);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116081534_SearchGenerationCoherence'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [Workspaces] ADD CONSTRAINT [CK_Workspaces_SearchGeneration] CHECK ([SearchGeneration] >= 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116081534_SearchGenerationCoherence'
+)
+BEGIN
+    EXEC(N'CREATE OR ALTER TRIGGER [dbo].[TR_Chunks_SearchGeneration]
+    ON [dbo].[Chunks]
+    AFTER INSERT, UPDATE, DELETE
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+        ;WITH changed AS (
+            SELECT [WorkspaceId] FROM inserted
+            UNION
+            SELECT [WorkspaceId] FROM deleted
+        )
+        UPDATE target
+        SET [SearchGeneration] = [SearchGeneration] + 1
+        FROM [dbo].[Workspaces] AS target
+        INNER JOIN changed ON changed.[WorkspaceId] = target.[Id];
+    END;');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116081534_SearchGenerationCoherence'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261116081534_SearchGenerationCoherence', N'10.0.0');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116181710_ChunkJobs'
+)
+BEGIN
+    CREATE TABLE [ChunkJobs] (
+        [Id] uniqueidentifier NOT NULL,
+        [WorkspaceId] uniqueidentifier NOT NULL,
+        [DocumentId] uniqueidentifier NOT NULL,
+        [Status] nvarchar(16) NOT NULL,
+        [PagesJson] nvarchar(max) NOT NULL,
+        [CompletedPagesJson] nvarchar(max) NOT NULL,
+        [FailedPagesJson] nvarchar(max) NOT NULL,
+        [SkippedPagesJson] nvarchar(max) NOT NULL,
+        [Guidance] nvarchar(4000) NOT NULL,
+        [BatchSize] int NOT NULL,
+        [MaxTokens] int NOT NULL,
+        [BatchTimeoutSeconds] int NOT NULL,
+        [MaxRetries] int NOT NULL,
+        [FailureMode] nvarchar(16) NOT NULL,
+        [TotalBatches] int NOT NULL,
+        [CompletedBatches] int NOT NULL,
+        [CurrentBatchStart] int NULL,
+        [CurrentBatchEnd] int NULL,
+        [ErrorCode] nvarchar(64) NULL,
+        [PauseRequested] bit NOT NULL,
+        [CancelRequested] bit NOT NULL,
+        [CreatedBy] uniqueidentifier NULL,
+        [RetryOfJobId] uniqueidentifier NULL,
+        [CreatedAt] datetime2 NOT NULL,
+        [StartedAt] datetime2 NULL,
+        [CompletedAt] datetime2 NULL,
+        [LastHeartbeatAt] datetime2 NULL,
+        [LeaseOwner] nvarchar(128) NULL,
+        [LeaseUntil] datetime2 NULL,
+        [Revision] int NOT NULL DEFAULT 1,
+        CONSTRAINT [PK_ChunkJobs] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_ChunkJobs_BatchSize] CHECK ([BatchSize] BETWEEN 1 AND 10),
+        CONSTRAINT [CK_ChunkJobs_FailureMode] CHECK ([FailureMode] IN ('continue', 'stop')),
+        CONSTRAINT [CK_ChunkJobs_MaxTokens] CHECK ([MaxTokens] BETWEEN 100 AND 2000),
+        CONSTRAINT [CK_ChunkJobs_Retries] CHECK ([MaxRetries] BETWEEN 0 AND 3),
+        CONSTRAINT [CK_ChunkJobs_Revision] CHECK ([Revision] >= 1),
+        CONSTRAINT [CK_ChunkJobs_Timeout] CHECK ([BatchTimeoutSeconds] BETWEEN 60 AND 600),
+        CONSTRAINT [FK_ChunkJobs_Documents_DocumentId] FOREIGN KEY ([DocumentId]) REFERENCES [Documents] ([Id]) ON DELETE NO ACTION
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116181710_ChunkJobs'
+)
+BEGIN
+    CREATE INDEX [IX_ChunkJobs_DocumentId_Status] ON [ChunkJobs] ([DocumentId], [Status]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116181710_ChunkJobs'
+)
+BEGIN
+    CREATE INDEX [IX_ChunkJobs_Status_LeaseUntil] ON [ChunkJobs] ([Status], [LeaseUntil]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116181710_ChunkJobs'
+)
+BEGIN
+    CREATE INDEX [IX_ChunkJobs_WorkspaceId_CreatedAt] ON [ChunkJobs] ([WorkspaceId], [CreatedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116181710_ChunkJobs'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261116181710_ChunkJobs', N'10.0.0');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261117102730_ReparseMetadata'
+)
+BEGIN
+    ALTER TABLE [Documents] ADD [FootnoteMarkers] nvarchar(max) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261117102730_ReparseMetadata'
+)
+BEGIN
+    ALTER TABLE [Chunks] ADD [ReReviewRequired] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261117102730_ReparseMetadata'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261117102730_ReparseMetadata', N'10.0.0');
+END;
+
+COMMIT;
+GO
+

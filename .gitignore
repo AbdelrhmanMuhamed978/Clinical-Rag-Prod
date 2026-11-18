@@ -23,6 +23,7 @@ TestResults/
 *.env.*
 !.env.example
 appsettings.Local.json
+/backend/appsettings.Development.json
 # Existing configured file contains a local Firebase key; use the safe example.
 /backend/appsettings.json
 /test_e2e.ps1

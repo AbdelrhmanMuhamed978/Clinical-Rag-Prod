@@ -34,6 +34,25 @@ public class EmbeddingBatchTests
     }
 
     [Fact]
+    public async Task Chunks_marked_for_re_review_are_not_embedded_until_reviewed()
+    {
+        using var store = new DocumentTestStore(); var document = await store.AddDocumentAsync(); await AddAccepted(store, document, 1);
+        await using (var update = store.CreateContext())
+        {
+            var chunk = await update.Chunks.SingleAsync();
+            chunk.ReReviewRequired = true;
+            await update.SaveChangesAsync();
+        }
+        var client = new FakeColabClient { EmbedHandler = _ => throw new InvalidOperationException("flagged chunk must not be embedded") };
+        await using var db = store.CreateContext();
+        var response = Assert.IsType<OkObjectResult>(await store.Controller(db, client).GenerateEmbeddings(store.Workspace.Id, document.Id));
+        Assert.Equal(0, DocumentTestStore.Json(response.Value).GetProperty("embedded").GetInt32());
+        db.ChangeTracker.Clear();
+        var saved = await db.Chunks.SingleAsync();
+        Assert.True(saved.ReReviewRequired); Assert.Equal("accepted", saved.Status); Assert.Null(saved.Embedding);
+    }
+
+    [Fact]
     public async Task A_transient_embedding_failure_is_retried_without_duplicating_a_batch()
     {
         using var store = new DocumentTestStore(); var document = await store.AddDocumentAsync(); await AddAccepted(store, document, 2); var calls = 0;

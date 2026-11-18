@@ -64,6 +64,17 @@ public static class PipelineResultPolicy
             if (score.ValueKind != JsonValueKind.Number || !double.IsFinite(score.GetDouble())) throw InvalidContract();
             result["score"] = score.GetDouble();
         }
+        foreach (var name in new[] { "certainty", "title", "version", "effective_date", "review_by", "source_url", "permission_note" })
+        {
+            if (!value.TryGetProperty(name, out var field)) continue;
+            if (field.ValueKind != JsonValueKind.String) throw InvalidContract();
+            result[name] = field.GetString();
+        }
+        if (value.TryGetProperty("superseded", out var superseded))
+        {
+            if (superseded.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw InvalidContract();
+            result["superseded"] = superseded.GetBoolean();
+        }
         return result;
     }
 
@@ -86,6 +97,15 @@ public static class PipelineResultPolicy
                  && (issues.ValueKind != JsonValueKind.Array || issues.GetArrayLength() > 0))
             throw InvalidContract();
         if (value.TryGetProperty("repaired", out _)) result["repaired"] = Text(value, "repaired");
+
+        if (verified && value.TryGetProperty("table", out var table))
+        {
+            if (table.ValueKind != JsonValueKind.Object) throw InvalidContract();
+            var headers = Strings(Field(table, "headers", JsonValueKind.Array));
+            var row = Strings(Field(table, "row", JsonValueKind.Array));
+            if (headers.Count < 2 || headers.Count > 20 || row.Count != headers.Count) throw InvalidContract();
+            result["table"] = new JsonObject { ["headers"] = headers, ["row"] = row };
+        }
 
         if (verified && value.TryGetProperty("patient_notes", out var notes))
         {
@@ -125,7 +145,13 @@ public static class PipelineResultPolicy
             var unverified = new JsonArray();
             var sources = new JsonArray();
             foreach (var item in Field(problem, "items", JsonValueKind.Array).EnumerateArray()) items.Add(Item(item, true));
-            if ((status == "ok") != (items.Count > 0)) throw InvalidContract();
+            var related = new JsonArray();
+            if (problem.TryGetProperty("related", out var relatedField))
+            {
+                if (relatedField.ValueKind != JsonValueKind.Array) throw InvalidContract();
+                foreach (var item in relatedField.EnumerateArray()) related.Add(Item(item, true));
+            }
+            if ((status == "ok") != (items.Count + related.Count > 0)) throw InvalidContract();
             foreach (var item in Field(problem, "unverified", JsonValueKind.Array).EnumerateArray()) unverified.Add(Item(item, false));
             foreach (var source in Field(problem, "sources", JsonValueKind.Array).EnumerateArray())
             {
@@ -137,12 +163,63 @@ public static class PipelineResultPolicy
             {
                 ["title"] = Text(problem, "title", true), ["status"] = status,
                 ["queries"] = Strings(Field(problem, "queries", JsonValueKind.Array)),
-                ["items"] = items, ["unverified"] = unverified, ["sources"] = sources
+                ["items"] = items, ["related"] = related, ["unverified"] = unverified, ["sources"] = sources
             };
+            if (problem.TryGetProperty("covers", out _))
+            {
+                var covers = Text(problem, "covers", true);
+                if (covers.Length > 4000) throw InvalidContract();
+                projectedProblem["covers"] = covers;
+            }
             if (problem.TryGetProperty("detail", out _)) projectedProblem["detail"] = Text(problem, "detail");
+            if (problem.TryGetProperty("reason", out _))
+            {
+                var reason = Text(problem, "reason");
+                if (reason is not ("nothing_retrieved" or "retrieved_unverified" or "only_draft_sources")
+                    || status is not ("not_found" or "unverified")) throw InvalidContract();
+                projectedProblem["reason"] = reason;
+            }
             problems.Add(projectedProblem);
         }
         result["problems"] = problems;
+        if (value.TryGetProperty("coverage", out var coverage))
+        {
+            if (coverage.ValueKind != JsonValueKind.Array || coverage.GetArrayLength() > 20) throw InvalidContract();
+            var projectedCoverage = new JsonArray();
+            foreach (var row in coverage.EnumerateArray())
+            {
+                var part = Text(row, "part", true);
+                var status = Text(row, "status");
+                if (part.Length > 4000 || status is not ("answered" or "related_only" or "not_covered")) throw InvalidContract();
+                projectedCoverage.Add(new JsonObject { ["part"] = part, ["status"] = status });
+            }
+            result["coverage"] = projectedCoverage;
+        }
+        if (value.TryGetProperty("conflicts", out var conflicts))
+        {
+            if (conflicts.ValueKind != JsonValueKind.Array || conflicts.GetArrayLength() > 20) throw InvalidContract();
+            var projected = new JsonArray();
+            foreach (var conflict in conflicts.EnumerateArray())
+            {
+                var items = Field(conflict, "items", JsonValueKind.Array);
+                if (items.GetArrayLength() != 2) throw InvalidContract();
+                var itemArray = new JsonArray();
+                foreach (var item in items.EnumerateArray())
+                {
+                    itemArray.Add(new JsonObject
+                    {
+                        ["recommendation"] = Text(item, "recommendation", true),
+                        ["citation"] = Citation(Field(item, "citation", JsonValueKind.Object))
+                    });
+                }
+                projected.Add(new JsonObject
+                {
+                    ["point"] = Text(conflict, "point", true),
+                    ["items"] = itemArray
+                });
+            }
+            result["conflicts"] = projected;
+        }
         if (Text(value, "plan_source") == "chat" && problems.Count > 0) throw InvalidContract();
         // Legacy results grouped processing failures with absent evidence. A failed
         // retrieval/generation cannot establish that a guideline lacks coverage.
@@ -160,14 +237,16 @@ public static class PipelineResultPolicy
     {
         var result = JsonNode.Parse(ForResponse(value).GetRawText())!.AsObject();
         var problems = result["problems"]!.AsArray();
+        if (caseMode) result.Remove("coverage");
         var uncovered = new JsonArray();
         for (var index = 0; index < problems.Count; index++)
         {
             var problem = problems[index]!.AsObject();
             problem["queries"] = new JsonArray(); // Planning queries can echo case text.
             problem.Remove("detail");
+            if (caseMode) problem.Remove("covers");
             if (caseMode) problem["title"] = $"Guideline question {index + 1}";
-            foreach (var item in problem["items"]!.AsArray())
+            foreach (var item in problem["items"]!.AsArray().Concat(problem["related"]!.AsArray()))
             {
                 item!.AsObject().Remove("patient_notes");
                 // Store source words, not a generated patient-specific paraphrase.
@@ -200,6 +279,23 @@ public static class PipelineResultPolicy
             warnings.Add(privacyWarning);
             result["warnings"] = warnings;
         }
+        else
+        {
+            // Question-mode exports keep the human-readable problem topic label
+            // even if the pipeline's coverage list omitted it.
+            var titles = result["not_covered"]!.AsArray()
+                .Select(node => node!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
+            var merged = new JsonArray(result["not_covered"]!.AsArray()
+                .Select(node => node!.DeepClone()).ToArray());
+            foreach (var problem in problems.Where(problem =>
+                         problem!["status"]!.GetValue<string>() is "not_found" or "unverified"))
+            {
+                var title = problem!["title"]!.GetValue<string>();
+                if (titles.Add(title)) merged.Add(title);
+            }
+            result["not_covered"] = merged;
+        }
         return JsonSerializer.SerializeToElement(result);
     }
 }
+

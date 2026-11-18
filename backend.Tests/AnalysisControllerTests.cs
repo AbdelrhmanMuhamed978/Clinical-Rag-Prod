@@ -37,8 +37,8 @@ public class FakeColabClient : IColabClient
     public Task<ColabReadiness> ReadyAsync(CancellationToken cancellationToken = default) => Task.FromResult(new ColabReadiness(true, "synthetic-model"));
     public Task<JsonElement> ParsePdfAsync(byte[] bytes, string fileName, CancellationToken cancellationToken = default) =>
         Transport?.ParsePdfAsync(bytes, fileName, cancellationToken) ?? throw new InvalidOperationException("No synthetic document transport configured.");
-    public Task<JsonElement?> RunChunkJobAsync(JsonElement body, CancellationToken cancellationToken = default) =>
-        Transport?.RunChunkJobAsync(body, cancellationToken) ?? throw new InvalidOperationException("No synthetic document transport configured.");
+    public Task<JsonElement?> RunChunkJobAsync(JsonElement body, int? timeoutSeconds = null, CancellationToken cancellationToken = default) =>
+        Transport?.RunChunkJobAsync(body, timeoutSeconds, cancellationToken) ?? throw new InvalidOperationException("No synthetic document transport configured.");
     public Task<JsonElement> PostRawAsync(string path, JsonElement body, CancellationToken cancellationToken = default) =>
         Task.FromResult(JsonSerializer.SerializeToElement(new { }));
 
@@ -208,6 +208,40 @@ public class AnalysisControllerTests
         Assert.Equal(expectedTopK, json.GetProperty("chunks").GetArrayLength());
         Assert.Equal(0, colab.GenerateCallCount);
         Assert.Equal(new[] { "focused query" }, colab.LastSubQueries);
+    }
+
+    [Fact]
+    public async Task Superseded_guideline_is_excluded_until_owner_opts_in()
+    {
+        var seeded = Seed();
+        using var db = seeded.Db;
+        var document = db.Documents.Add(new Document
+        {
+            WorkspaceId = seeded.WorkspaceId, FileName = "superseded.pdf", Society = "Synthetic",
+            Title = "Superseded synthetic guideline", Year = 2023, GuidelineStatus = "superseded"
+        }).Entity;
+        await db.SaveChangesAsync();
+        var chunk = db.Chunks.Add(new Chunk
+        {
+            WorkspaceId = seeded.WorkspaceId, DocumentId = document.Id, Page = 4,
+            Text = "superseded recommendation", Status = "embedded"
+        }).Entity;
+        EmbeddingTestData.Set(chunk, 1, 0, 0);
+        await db.SaveChangesAsync();
+
+        var controller = Controller(seeded, new FakeColabClient());
+        var before = JsonSerializer.SerializeToElement(await controller.DoRetrieve(seeded.WorkspaceId, "superseded"));
+        Assert.DoesNotContain(before.GetProperty("chunks").EnumerateArray(),
+            item => item.GetProperty("chunk_id").GetString() == chunk.Id.ToString());
+
+        var workspace = await db.Workspaces.SingleAsync();
+        workspace.AllowSupersededGuidelines = true;
+        await db.SaveChangesAsync();
+        var after = JsonSerializer.SerializeToElement(await controller.DoRetrieve(seeded.WorkspaceId, "superseded"));
+        var included = after.GetProperty("chunks").EnumerateArray()
+            .Single(item => item.GetProperty("chunk_id").GetString() == chunk.Id.ToString());
+        Assert.Equal("superseded", included.GetProperty("status").GetString());
+        Assert.True(included.GetProperty("superseded").GetBoolean());
     }
 
     [Fact]

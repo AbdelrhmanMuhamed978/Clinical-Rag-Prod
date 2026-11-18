@@ -1,5 +1,9 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using ClinicalRag.Api.Controllers;
 using ClinicalRag.Api.Data;
+using Microsoft.AspNetCore.Http;
 using ClinicalRag.Api.Models;
 using ClinicalRag.Api.Services;
 using Microsoft.AspNetCore.DataProtection;
@@ -160,6 +164,65 @@ public class ColabOperationsTests
         // Wrong expected revision -> conflict.
         await Assert.ThrowsAsync<ColabSettingConflictException>(() =>
             store.ManualAsync("https://manual.example.com/", "key-two-12345678", false, 0, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Runtime_rotation_recovers_ready_and_operations_without_an_api_restart()
+    {
+        using var ctx = new StoreContext();
+        var store = CreateStore(ctx);
+        var colabHandler = new DocumentHttpHandler((request, _) =>
+        {
+            if (request.RequestUri!.Host == "old.example.com")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    ready = true, model = "synthetic-model", embeddingModel = "synthetic-encoder",
+                    embeddingDimensions = 2,
+                    gpu = new { available = true, name = "synthetic-GPU", device = "cuda", totalMemoryBytes = 1024 },
+                }),
+            });
+        });
+        var colab = new ColabClient(new HttpClient(colabHandler), store, ctx.Configuration);
+        var pipeline = new PipelineClient(
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Pipeline:ApiKey"] = "synthetic-pipeline-key",
+                ["Pipeline:ReadyTimeoutSeconds"] = "5",
+            }).Build(),
+            new FakeHttpClientFactory(new DocumentHttpHandler((_, _) =>
+                Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = JsonContent.Create(new { ready = true }) }))));
+        var readiness = new ReadinessService(ctx.Db, colab, pipeline);
+        var controller = new OperationsController(readiness, colab, store, ctx.Configuration)
+        { ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext { HttpContext = new DefaultHttpContext() } };
+
+        await store.RegisterAsync("https://old.example.com/", "synthetic-key-one", new string('a', 32), false, CancellationToken.None);
+        var down = await controller.Ready(CancellationToken.None);
+        var downResult = Assert.IsType<Microsoft.AspNetCore.Mvc.ObjectResult>(down);
+        Assert.Equal(503, downResult.StatusCode);
+        Assert.Equal("30", controller.Response.Headers.RetryAfter.ToString());
+
+        // Runtime restart registers the same process's new tunnel; the unchanged
+        // ColabClient reads the fresh row and recovers without an API restart.
+        await store.RegisterAsync("https://new.example.com/", "synthetic-key-two", new string('b', 32), false, CancellationToken.None);
+        var up = await controller.Ready(CancellationToken.None);
+        var upResult = Assert.IsType<Microsoft.AspNetCore.Mvc.ObjectResult>(up);
+        Assert.Equal(200, upResult.StatusCode);
+        var status = await store.StatusAsync(admin: true, CancellationToken.None);
+        Assert.Equal("https://new.example.com/", status.BaseUrl);
+        Assert.Equal(2, status.Revision);
+
+        // Same URL/key heartbeat only refreshes liveness; it cannot rotate the row.
+        await store.RegisterAsync("https://new.example.com/", "synthetic-key-two", new string('b', 32), true, CancellationToken.None);
+        Assert.Equal(2, (await store.StatusAsync(admin: true, CancellationToken.None)).Revision);
+
+        // A surviving old runtime cannot heartbeat the superseded connection back.
+        await Assert.ThrowsAsync<ColabSettingConflictException>(() =>
+            store.RegisterAsync("https://old.example.com/", "synthetic-key-one", new string('a', 32), true, CancellationToken.None));
+        Assert.Equal(200, Assert.IsType<Microsoft.AspNetCore.Mvc.ObjectResult>(await controller.Ready(CancellationToken.None)).StatusCode);
     }
 
     [Fact]

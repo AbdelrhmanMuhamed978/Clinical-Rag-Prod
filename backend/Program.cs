@@ -1,9 +1,20 @@
+using System.Security.Claims;
 using ClinicalRag.Api.Data;
 using ClinicalRag.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+if (builder.Environment.IsProduction()
+    && (allowedOrigins.Length == 0 || allowedOrigins.Any(origin => string.IsNullOrWhiteSpace(origin) || origin.Trim() == "*")))
+{
+    throw new InvalidOperationException(
+        "Cors:AllowedOrigins must list at least one explicit origin and must not contain '*' in Production.");
+}
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -27,7 +38,9 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
             ? new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new { error = "Invalid preview request. Check the definition and input lengths." })
             : context.HttpContext.Request.Path.StartsWithSegments("/api/admin")
                 ? new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new { error = "Invalid operations request. Check the required fields and input lengths." })
-                : original(context);
+                : context.HttpContext.Request.Path.Value?.Contains("/tests", StringComparison.OrdinalIgnoreCase) == true
+                    ? new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new { error = "Invalid test request. Check the required fields and input lengths." })
+                    : original(context);
 });
 builder.Services.AddEndpointsApiExplorer();
 
@@ -69,18 +82,26 @@ builder.Services.AddSingleton<IPipelineClient>(services => services.GetRequiredS
 builder.Services.AddSingleton<IRulePreviewClient>(services => services.GetRequiredService<PipelineClient>());
 builder.Services.AddScoped<RuleService>();
 builder.Services.AddScoped<IConfigService, ConfigService>();
-builder.Services.AddScoped<IConfigTestRunProvider, NoConfigTestRunProvider>();
+builder.Services.AddScoped<IConfigTestRunProvider, PersistedConfigTestRunProvider>();
 builder.Services.AddScoped<TestHarnessService>();
 builder.Services.AddScoped<IFirebaseTokenValidator, FirebaseTokenValidator>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<DocumentParser>();
+builder.Services.AddScoped<ChunkJobProcessor>();
 if (builder.Configuration.GetValue<bool>("Documents:AutomaticParsing", true))
     builder.Services.AddHostedService<DocumentParsingWorker>();
+if (builder.Configuration.GetValue<bool>("Documents:ChunkJobs", true))
+    builder.Services.AddHostedService<ChunkJobWorker>();
 if (builder.Configuration.GetValue<bool>("Documents:AutomaticFileCleanup", true))
     builder.Services.AddHostedService<UploadCleanupWorker>();
 
-builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
-    p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod().WithExposedHeaders(RequestCorrelation.Header, "Retry-After")));
+builder.Services.AddCors(o => o.AddPolicy("App", p =>
+    p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()
+        .WithExposedHeaders(RequestCorrelation.Header, "Retry-After")));
+builder.Services.AddOptions<AbuseLimitOptions>().Bind(builder.Configuration.GetSection("AbuseLimits"));
+builder.Services.AddSingleton<IAbuseLimitService, AbuseLimitService>();
+builder.Services.AddRequestTimeouts(o => o.AddPolicy("analysis",
+    TimeSpan.FromSeconds(Math.Clamp(builder.Configuration.GetValue("AbuseLimits:RequestTimeoutSeconds", 300), 1, 3600))));
 
 var firebaseProjectId = builder.Configuration["Firebase:ProjectId"];
 if (!string.IsNullOrWhiteSpace(firebaseProjectId))
@@ -99,13 +120,37 @@ if (!string.IsNullOrWhiteSpace(firebaseProjectId))
         };
     });
 }
+else if (builder.Environment.IsProduction())
+{
+    throw new InvalidOperationException(
+        "Firebase:ProjectId is required in Production; development authentication is disabled.");
+}
 else
 {
-    // Dev mode: no Firebase configured -> allow anonymous (for local testing)
+    // Dev mode: no Firebase configured -> allow anonymous (for local testing).
     builder.Services.AddAuthentication("Dev").AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, DevAuthHandler>("Dev", _ => { });
 }
-builder.Services.AddAuthorization(options => options.AddPolicy(PlatformAdmin.Policy, policy =>
-    policy.RequireAuthenticatedUser().RequireAssertion(context => PlatformAdmin.IsAllowed(context.User, builder.Configuration))));
+builder.Services.AddAuthorization(options =>
+{
+    options.DefaultPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .RequireAssertion(context => EmailVerified(context.User))
+        .Build();
+    options.AddPolicy(PlatformAdmin.Policy, policy =>
+        policy.RequireAuthenticatedUser()
+            .RequireAssertion(context => EmailVerified(context.User)
+                && PlatformAdmin.IsAllowed(context.User, builder.Configuration)));
+});
+
+static bool EmailVerified(ClaimsPrincipal user)
+{
+    var claim = user.FindFirstValue("email_verified");
+    // The production JWT always carries this claim. The test-only scheme may omit
+    // it, but an explicit false is still rejected there and in every real scheme.
+    return claim is null
+        ? user.Identity?.AuthenticationType == "Test"
+        : string.Equals(claim, "true", StringComparison.OrdinalIgnoreCase);
+}
 
 var app = builder.Build();
 app.UseMiddleware<RequestObservabilityMiddleware>();
@@ -115,11 +160,18 @@ app.Use(async (context, next) =>
     // Include automatic validation/authentication errors, not only successful previews.
     if (context.Request.Path.Value?.EndsWith("/rules/preview", StringComparison.OrdinalIgnoreCase) == true)
         context.Response.Headers.CacheControl = "no-store";
+    // API responses are data, never documents: deny all content and framing.
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
     await next(context);
 });
-app.UseCors();
+app.UseRouting();
+app.UseCors("App");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRequestTimeouts();
+app.UseMiddleware<AbuseLimitMiddleware>();
 app.MapControllers();
 
 // Apply migrations on startup only when explicitly opted in. Defaults to true in

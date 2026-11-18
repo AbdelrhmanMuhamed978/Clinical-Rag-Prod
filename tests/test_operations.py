@@ -95,6 +95,25 @@ def test_colab_readiness_reports_model_gpu_and_requires_model_key():
         assert response.headers["X-Request-Id"] == "a" * 32
 
 
+def test_model_readiness_exposes_live_gpu_memory_without_loading_models(monkeypatch):
+    from colab.models import ModelRuntime
+
+    runtime = ModelRuntime()
+    runtime._started = True
+    runtime.device = "cuda"
+    runtime.gpu_info = {"available": True, "name": "synthetic-GPU", "device": "cuda", "totalMemoryBytes": 1024}
+    runtime.engine = runtime.embedder = runtime.reranker = object()
+    monkeypatch.setattr(runtime, "gpu_memory", lambda: {
+        "totalMemoryBytes": 1024, "usedMemoryBytes": 512,
+        "allocatedMemoryBytes": 256, "peakAllocatedBytes": 384,
+    })
+    summary = runtime.readiness()
+    assert summary["ready"] is True
+    assert summary["gpu"]["name"] == "synthetic-GPU"
+    assert summary["gpu"]["usedMemoryBytes"] == 512
+    assert summary["gpu"]["peakAllocatedBytes"] == 384
+
+
 def test_dynamic_connection_resolution_forwards_correlation_and_uses_new_runtime_on_each_generation(monkeypatch):
     calls = []
     revision = 0

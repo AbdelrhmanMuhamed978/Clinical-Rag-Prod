@@ -1,10 +1,16 @@
-"""Benchmark production retrieval using a fixed synthetic fixture.
+"""Evaluation entry points.
 
-This measures warm DoRetrieve with stub embeddings/reranking and EF InMemory
-or a disposable SQL Server database. SQL mode includes database execution;
-neither mode measures live model/GPU/service-network latency, clinical quality
-or publication evidence.
-The unfinished question evaluator remains available via --mode pipeline.
+``--mode retrieval`` (default) benchmarks production retrieval using a fixed
+synthetic fixture with stub embeddings/reranking. It measures EF InMemory or a
+disposable SQL Server database, not live model/GPU/service-network latency,
+clinical quality or publication evidence.
+
+``--mode clinical`` runs a clinician-labelled set through the real verified
+pipeline (real encoder and reranker, authenticated diagnostics). It refuses the
+synthetic worked example unless ``--allow-synthetic`` is explicitly supplied.
+
+``--mode pipeline`` remains an experimental legacy question evaluator; prefer
+``--mode clinical`` for a clinical-quality run.
 """
 
 import argparse
@@ -27,10 +33,12 @@ def positive_int(value: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
     mode_parser = argparse.ArgumentParser(add_help=False)
-    mode_parser.add_argument("--mode", choices=("retrieval", "pipeline"), default="retrieval")
+    mode_parser.add_argument("--mode", choices=("retrieval", "pipeline", "clinical"), default="retrieval")
     mode, remaining = mode_parser.parse_known_args(values)
     if mode.mode == "pipeline":
         return subprocess.call([sys.executable, str(ROOT / "eval/run_pipeline_eval.py"), *remaining])
+    if mode.mode == "clinical":
+        return subprocess.call([sys.executable, str(ROOT / "eval/run_clinical_eval.py"), *remaining])
 
     parser = argparse.ArgumentParser(description=__doc__, parents=[mode_parser])
     parser.add_argument("--output", type=Path, required=True, help="New JSON artifact; existing files are never overwritten")

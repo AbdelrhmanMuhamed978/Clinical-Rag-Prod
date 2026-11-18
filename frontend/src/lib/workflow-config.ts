@@ -1,5 +1,5 @@
-import schema from "../../../config/config.schema.json";
-import defaultPrompts from "../../../config/default_prompts.json";
+import schema from "../../../python-backend/config/config.schema.json";
+import defaultPrompts from "../../../python-backend/config/default_prompts.json";
 import { ApiError } from "./api";
 import type { ConfigTestRun, ConfigVersion, ConfigVersionDetails } from "./types";
 

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "crag-offline-replay/1.0",
+  "generatedAtUtc": "2026-11-17T15:07:06.852807+00:00",
+  "status": "offline-replay",
+  "clinicalEvidence": false,
+  "labelSource": "synthetic-fixture",
+  "scope": "Deterministic verifier replay on two fixed parsed pages. No retrieval, model, network or clinician review. Not clinical evidence.",
+  "case": {
+    "id": "who-crag-screening-before-art",
+    "set": "real-who-crag-pending.json",
+    "expectedMode": "question",
+    "expectedPages": [
+      11,
+      41
+    ],
+    "pendingClinicianFields": [
+      "screeningUnavailableStatement"
+    ]
+  },
+  "source": {
+    "document": "9789240118164-eng.pdf",
+    "sha256": "865ab98747ace555c3de012dca1b3f86713463fb78f67cd7fad704ca6966fac2",
+    "parser": "python-backend/pipeline.py + colab/parsing.py"
+  },
+  "parserArtifacts": {
+    "11": {
+      "fused_screening_marker": 0,
+      "html_br": 0,
+      "wrapped_dash": 0
+    },
+    "41": {
+      "fused_screening_marker": 0,
+      "html_br": 0,
+      "wrapped_dash": 0
+    }
+  },
+  "metrics": {
+    "verifiedRate": 1.0,
+    "expectedStatementVerified": true,
+    "expectedStatementVerifiedRate": 1.0,
+    "forbiddenStatementViolations": 0,
+    "rejectionReasons": {
+      "negation_conflict": 1
+    },
+    "quoteRewrites": 0,
+    "verifiedItemQuoteRewritten": false,
+    "cases": 1,
+    "hitAtK": null,
+    "modeAccuracy": null
+  },
+  "guardProbe": {
+    "description": "The forbidden induction statement with its exact supporting quote. The deterministic verifier accepts it, so this probe does not test lead selection or the eval's forbidden-lead rule.",
+    "forbiddenStatementVerifierAccepted": true,
+    "leadSelectionTested": false
+  },
+  "unavailable": {
+    "hitAtK": "No retrieval run; the expected pages were supplied as fixed context.",
+    "modeAccuracy": "The offline verifier does not produce plan_source; live mode is unmeasured.",
+    "screeningUnavailableStatement": "Pending clinician extraction from the source. Engineering did not fill it."
+  },
+  "limitations": [
+    "Not a clinical evaluation and not clinician-labelled evidence.",
+    "The candidates are fixed policy replays, not model output.",
+    "The expected pages were supplied; hit@k, MRR and retrieval latency were not measured.",
+    "The forbidden statement is rejected in the main replay only because its fixed quote does not support it; the guard probe shows the verifier accepts a correctly quoted induction statement, so lead-selection safety is unmeasured.",
+    "The screening-unavailable expectation remains pending clinician input."
+  ]
+}

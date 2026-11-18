@@ -35,12 +35,14 @@ public class TestHarnessTests
     {
         public string? ResponseJson { get; set; }
         public bool ShouldThrow { get; set; }
+        public string? Authorization { get; private set; }
         public Task<JsonElement> AnalyzeAsync(PipelineAnalyzeRequest request, string? authorization, CancellationToken cancellationToken = default)
         {
+            Authorization = authorization;
             if (ShouldThrow) throw new HttpRequestException("Pipeline is down");
             return Task.FromResult(ResponseJson != null
                 ? JsonDocument.Parse(ResponseJson).RootElement.Clone()
-                : JsonSerializer.SerializeToElement(new { problems = Array.Empty<JsonElement>() }));
+                : JsonDocument.Parse(TrustedTestEvidenceTests.VerifiedResult).RootElement.Clone());
         }
 
         public IAsyncEnumerable<PipelineStreamEvent> StreamAnalyzeAsync(PipelineAnalyzeRequest request, string? authorization, CancellationToken cancellationToken = default)
@@ -51,20 +53,34 @@ public class TestHarnessTests
 
     private static string ProblemJson(string title, string status = "ok", int itemCount = 1)
     {
-        var items = string.Join(",", Enumerable.Range(0, itemCount).Select(_ => "{\"recommendation\":\"rec\",\"quote\":\"quote\"}"));
+        var items = string.Join(",", Enumerable.Range(0, itemCount).Select(_ => "{\"recommendation\":\"rec\",\"quote\":\"quote\",\"citation\":{\"id\":\"synthetic\",\"label\":\"Synthetic\",\"section\":\"\",\"page\":\"1\",\"strength\":\"\",\"draft\":true}}"));
         return $"{{\"title\":\"{title}\",\"status\":\"{status}\",\"items\":[{items}],\"unverified\":[],\"sources\":[],\"queries\":[]}}";
+    }
+
+    private static string ResultJson(string problem, string warnings = "[]") =>
+        $"{{\"plan_source\":\"rules\",\"version\":\"synthetic\",\"disclaimer\":\"Synthetic test only\",\"not_covered\":[],\"problems\":[{problem}],\"warnings\":{warnings}}}";
+
+    [Fact]
+    public void Forbidden_phrases_are_compared_as_decoded_text_not_json_escape_sequences()
+    {
+        var result = JsonNode.Parse(TrustedTestEvidenceTests.VerifiedResult)!;
+        result["problems"]![0]!["items"]![0]!["recommendation"] = "Synthetic \"forbidden\" phrase.";
+        var expectation = TestExpectation.Parse(JsonSerializer.Serialize(new { forbiddenPhrases = new[] { "\"forbidden\"" } }));
+        var comparison = TestExpectationComparer.Compare(PipelineResultPolicy.ForResponse(JsonSerializer.SerializeToElement(result)), expectation);
+        Assert.False(comparison.Passed);
+        Assert.Contains("Forbidden phrase #1 appears in the result.", comparison.Diffs);
     }
 
     [Fact]
     public void Comparer_detects_missing_and_unexpected_problems()
     {
         var result = JsonDocument.Parse($"{{\"problems\":[{ProblemJson("Unexpected problem", "ok", 1)}],\"warnings\":[]}}").RootElement.Clone();
-        var expectation = TestExpectation.Parse("{\"mustHaveProblems\":[\"Expected problem\"],\"mustNotHaveProblems\":[\"Unexpected\"],\"requireDraftWarning\":true}");
+        var expectation = TestExpectation.Parse("{\"mustHaveProblems\":[\"Absent expected problem\"],\"mustNotHaveProblems\":[\"Unexpected\"],\"requireDraftWarning\":true}");
         var comparison = TestExpectationComparer.Compare(result, expectation);
         Assert.False(comparison.Passed);
-        Assert.Contains("Missing expected problem", comparison.Diffs);
-        Assert.Contains("Unexpected problem matching", comparison.Diffs);
-        Assert.Contains("DRAFT guideline warning", comparison.Diffs);
+        Assert.Contains(comparison.Diffs, diff => diff.Contains("Missing expected problem"));
+        Assert.Contains(comparison.Diffs, diff => diff.Contains("Unexpected problem matching"));
+        Assert.Contains(comparison.Diffs, diff => diff.Contains("DRAFT guideline warning"));
     }
 
     [Fact]
@@ -72,7 +88,7 @@ public class TestHarnessTests
     {
         await using var db = new AppDbContext(Options());
         var (_, workspaceId, _) = await SeedAsync();
-        var responseJson = $"{{\"problems\":[{ProblemJson("Septic shock and hypotension", "ok", 2)}],\"warnings\":[\"Some citations come from DRAFT guidelines\"]}}";
+        var responseJson = ResultJson(ProblemJson("Synthetic shock and hypotension", "ok", 2), "[\"Some citations come from DRAFT guidelines\"]");
         var fake = new FakePipelineClient { ResponseJson = responseJson };
         var harness = new TestHarnessService(db, fake, new ConfigService(db), new RuleService(db), new ConfigurationBuilder().Build());
 
@@ -80,12 +96,12 @@ public class TestHarnessTests
         db.TestCases.Add(new TestCase
         {
             Id = caseId, WorkspaceId = workspaceId, Name = "Passing case",
-            InputText = "septic shock case",
-            ExpectedJson = "{\"mustHaveProblems\":[\"Septic shock\"],\"minVerifiedItemsPerProblem\":1,\"requireDraftWarning\":true}",
+            InputText = "Synthetic shock case",
+            ExpectedJson = "{\"mustHaveProblems\":[\"Synthetic shock\"],\"minVerifiedItemsPerProblem\":1,\"requireDraftWarning\":true}",
         });
         await db.SaveChangesAsync();
 
-        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid());
+        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid(), "Bearer synthetic-test");
         Assert.Single(results);
         Assert.Equal("passed", results[0].Status);
     }
@@ -95,7 +111,7 @@ public class TestHarnessTests
     {
         await using var db = new AppDbContext(Options());
         var (_, workspaceId, _) = await SeedAsync();
-        var responseJson = $"{{\"problems\":[{ProblemJson("Unexpected problem", "ok", 1)}],\"warnings\":[]}}";
+        var responseJson = ResultJson(ProblemJson("Unexpected problem", "ok", 1));
         var fake = new FakePipelineClient { ResponseJson = responseJson };
         var harness = new TestHarnessService(db, fake, new ConfigService(db), new RuleService(db), new ConfigurationBuilder().Build());
 
@@ -104,17 +120,42 @@ public class TestHarnessTests
         {
             Id = caseId, WorkspaceId = workspaceId, Name = "Failing case",
             InputText = "some case",
-            ExpectedJson = "{\"mustHaveProblems\":[\"Expected problem\"],\"mustNotHaveProblems\":[\"Unexpected\"],\"requireDraftWarning\":true}",
+            ExpectedJson = "{\"mustHaveProblems\":[\"Absent expected problem\"],\"mustNotHaveProblems\":[\"Unexpected\"],\"requireDraftWarning\":true}",
         });
         await db.SaveChangesAsync();
 
-        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid());
+        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid(), "Bearer synthetic-test");
         Assert.Single(results);
         Assert.Equal("failed", results[0].Status);
         Assert.NotNull(results[0].Diff);
         Assert.Contains("Missing expected problem", results[0].Diff!);
         Assert.Contains("Unexpected problem matching", results[0].Diff!);
         Assert.Contains("DRAFT guideline warning", results[0].Diff!);
+        Assert.Equal("Bearer synthetic-test", fake.Authorization);
+    }
+
+    [Fact]
+    public async Task Missing_authorization_fails_closed_before_comparison()
+    {
+        await using var db = new AppDbContext(Options());
+        var (_, workspaceId, _) = await SeedAsync();
+        var fake = new FakePipelineClient { ResponseJson = ResultJson(ProblemJson("Unexpected problem", "ok", 1)) };
+        var harness = new TestHarnessService(db, fake, new ConfigService(db), new RuleService(db), new ConfigurationBuilder().Build());
+
+        var caseId = Guid.NewGuid();
+        db.TestCases.Add(new TestCase
+        {
+            Id = caseId, WorkspaceId = workspaceId, Name = "Missing auth case", InputText = "some case",
+            ExpectedJson = "{\"mustHaveProblems\":[\"Absent expected problem\"]}"
+        });
+        await db.SaveChangesAsync();
+
+        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid());
+        Assert.Single(results);
+        Assert.Equal("failed", results[0].Status);
+        Assert.Equal("auth", results[0].FailureCode);
+        Assert.Contains("authentication was rejected", results[0].Diff!);
+        Assert.Null(fake.Authorization);
     }
 
     [Fact]
@@ -122,7 +163,7 @@ public class TestHarnessTests
     {
         await using var db = new AppDbContext(Options());
         var (_, workspaceId, _) = await SeedAsync();
-        var responseJson = $"{{\"problems\":[{ProblemJson("Any problem", "ok", 1)}],\"warnings\":[\"DRAFT warning\"]}}";
+        var responseJson = ResultJson(ProblemJson("Any problem", "ok", 1), "[\"DRAFT warning\"]");
         var fake = new FakePipelineClient { ResponseJson = responseJson };
         var harness = new TestHarnessService(db, fake, new ConfigService(db), new RuleService(db), new ConfigurationBuilder().Build());
 
@@ -130,10 +171,10 @@ public class TestHarnessTests
         db.TestCases.Add(new TestCase { Id = caseId, WorkspaceId = workspaceId, Name = "Last run case", InputText = "x" });
         await db.SaveChangesAsync();
 
-        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid());
+        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid(), "Bearer synthetic-test");
         var savedCase = db.TestCases.Find(caseId);
         Assert.NotNull(savedCase!.LastRunAt);
-        Assert.NotNull(savedCase.LastRunJson);
+        Assert.Null(savedCase.LastRunJson);
     }
 
     [Fact]
@@ -148,7 +189,7 @@ public class TestHarnessTests
         db.TestCases.Add(new TestCase { Id = caseId, WorkspaceId = workspaceId, Name = "Pipeline fail case", InputText = "x" });
         await db.SaveChangesAsync();
 
-        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid());
+        var results = await harness.RunAsync(workspaceId, new List<Guid> { caseId }, null, Guid.NewGuid(), "Bearer synthetic-test");
         Assert.Single(results);
         Assert.Equal("failed", results[0].Status);
         Assert.Contains("Run failed", results[0].Diff!);

@@ -98,7 +98,11 @@ public class OperationsReadinessTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new
             {
                 ready = true, model = "synthetic-model", embeddingModel = "synthetic-encoder", embeddingDimensions = 2,
-                gpu = new { available = true, name = "synthetic-GPU", device = "cuda", totalMemoryBytes = 1024L }
+                gpu = new
+                {
+                    available = true, name = "synthetic-GPU", device = "cuda", totalMemoryBytes = 1024L,
+                    usedMemoryBytes = 512L, allocatedMemoryBytes = 256L, peakAllocatedBytes = 384L
+                }
             }) });
         });
         using var http = new HttpClient(handler);
@@ -106,5 +110,7 @@ public class OperationsReadinessTests
         var ready = await client.ReadyAsync();
         Assert.True(ready.Ready); Assert.Equal("synthetic-model", ready.Model);
         Assert.Equal("synthetic-GPU", ready.Gpu!.Name); Assert.Equal(1024L, ready.Gpu.TotalMemoryBytes);
+        Assert.Equal(512L, ready.Gpu.UsedMemoryBytes); Assert.Equal(256L, ready.Gpu.AllocatedMemoryBytes);
+        Assert.Equal(384L, ready.Gpu.PeakAllocatedBytes);
     }
 }

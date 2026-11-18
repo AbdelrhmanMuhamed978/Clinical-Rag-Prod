@@ -1,0 +1,10 @@
+{
+  "baseline": "synthetic-retrieval.v1.json",
+  "notes": "Absolute-quality-drop tolerances for the offline fixed-vector retrieval harness. The gate is a regression check, not clinical evidence. Re-baselining requires a reviewed fixture/provider migration.",
+  "gatedMetrics": {
+    "recallAt8": 0.0,
+    "mrrAt8": 0.02,
+    "ndcgAt8": 0.02,
+    "candidateRecallAt30": 0.0
+  }
+}

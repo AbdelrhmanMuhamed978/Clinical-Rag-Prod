@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 type ChatMessage =
   | { id: string; role: "user"; content: string }
-  | { id: string; role: "assistant"; kind: "result"; result: PipelineResult; progress: PipelineProgress[]; protectPatientContext: boolean }
+  | { id: string; role: "assistant"; kind: "result"; result: PipelineResult; progress: PipelineProgress[]; protectPatientContext: boolean; sourceText: string }
   | { id: string; role: "assistant"; kind: "attempt"; detail: string; outcome: "failed" | "cancelled"; progress: PipelineProgress[]; mode: AnalysisMode | null };
 
 function newId(): string {
@@ -105,7 +105,7 @@ function Playground({ workspaceId, userId }: { workspaceId: string; userId: stri
 
       setMessages((previous) => [
         ...previous,
-        { id: newId(), role: "assistant", kind: "result", result, progress: attempt.progress, protectPatientContext },
+        { id: newId(), role: "assistant", kind: "result", result, progress: attempt.progress, protectPatientContext, sourceText: currentQuestion },
       ]);
       setTurns((previous) => withVerifiedTurn(previous, currentQuestion, result));
       const verifiedCount = verifiedItemCount(result);
@@ -211,7 +211,7 @@ function Playground({ workspaceId, userId }: { workspaceId: string; userId: stri
                 <div className="whitespace-pre-wrap break-words rounded-2xl bg-indigo-600 px-4 py-3 text-sm text-white">{message.content}</div>
               ) : (
                 <div className="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  {message.kind === "result" ? <AnalysisResult result={message.result} progress={message.progress} protectPatientContext={message.protectPatientContext} /> : <>
+                  {message.kind === "result" ? <AnalysisResult result={message.result} progress={message.progress} protectPatientContext={message.protectPatientContext} sourceText={message.sourceText} /> : <>
                     <Badge variant="secondary">{analysisModeLabel(message.mode)}</Badge>
                     <p className="text-sm text-slate-700">{message.detail}</p>
                     <ProcessingSteps events={message.progress} outcome={message.outcome} />

@@ -96,8 +96,18 @@ public static class OperationTelemetry
     // A dependency-free Prometheus exporter as well as a standard .NET Meter for OTEL/dotnet-counters.
     public static string Prometheus()
     {
+        // ConcurrentDictionary enumeration is safe; its ICollection.CopyTo is not
+        // atomic with writers. Snapshot with foreach before sorting/exporting.
+        var snapshot = new List<KeyValuePair<(string Step, string Outcome), Samples>>();
+        foreach (var pair in Metrics) snapshot.Add(pair);
+        snapshot.Sort((left, right) =>
+        {
+            var byStep = string.CompareOrdinal(left.Key.Step, right.Key.Step);
+            return byStep != 0 ? byStep : string.CompareOrdinal(left.Key.Outcome, right.Key.Outcome);
+        });
+
         var text = new StringBuilder("# TYPE clinicalrag_step_duration_milliseconds histogram\n");
-        foreach (var (key, samples) in Metrics.OrderBy(pair => pair.Key.Step).ThenBy(pair => pair.Key.Outcome))
+        foreach (var (key, samples) in snapshot)
         {
             var labels = $"step=\"{key.Step}\",outcome=\"{key.Outcome}\"";
             lock (samples.Sync)

@@ -49,7 +49,13 @@ function Documents({ workspaceId, userId }: { workspaceId: string; userId: strin
     try {
       const body = new FormData();
       body.append("file", value.file); body.append("society", value.society);
+      if (value.title) body.append("title", value.title);
+      if (value.version) body.append("version", value.version);
       body.append("year", String(value.year)); body.append("guidelineStatus", value.guidelineStatus);
+      if (value.effectiveDate) body.append("effectiveDate", value.effectiveDate);
+      if (value.reviewByDate) body.append("reviewByDate", value.reviewByDate);
+      if (value.sourceUrl) body.append("sourceUrl", value.sourceUrl);
+      if (value.permissionNote) body.append("permissionNote", value.permissionNote);
       const doc = await api<Document>(`/api/workspaces/${workspaceId}/documents`, { method: "POST", body, signal: request.signal });
       if (!request.isCurrent()) return;
       qc.setQueryData<Document[]>(queryKey, previous => [doc, ...(previous ?? []).filter(d => d.id !== doc.id)]);
@@ -74,8 +80,14 @@ function Documents({ workspaceId, userId }: { workspaceId: string; userId: strin
     setBusy({ action: "parse", id: doc.id });
     setNotice("Retry parsing requested.");
     try {
-      await api(`/api/workspaces/${workspaceId}/documents/${doc.id}/parse`, { method: "POST", body: "{}", signal: request.signal });
-      if (request.isCurrent()) { setNotice("PDF parsed. Choose pages next."); toast.success("PDF parsed."); }
+      const parsed = await api<{ needsOcrPages?: number[] }>(`/api/workspaces/${workspaceId}/documents/${doc.id}/parse`, { method: "POST", body: "{}", signal: request.signal });
+      if (request.isCurrent()) {
+        const needsOcr = parsed.needsOcrPages ?? [];
+        setNotice(needsOcr.length
+          ? `PDF parsed. Pages ${needsOcr.join(", ")} need OCR; they were not indexed.`
+          : "PDF parsed. Choose pages next.");
+        toast.success("PDF parsed.");
+      }
     } catch (cause) {
       if (request.isCurrent()) {
         const message = documentActionError(cause, "Parsing did not complete. Refresh to check the document status.");
@@ -149,10 +161,20 @@ function Documents({ workspaceId, userId }: { workspaceId: string; userId: strin
           <CardContent className="space-y-4 p-4">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span>{doc.society || "Publishing society not recorded"}</span><span>· {doc.year ?? "Year not recorded"}</span>
-              <Badge className={doc.guidelineStatus === "final" ? "bg-slate-100 text-slate-700" : "bg-amber-100 text-amber-800"}>{doc.guidelineStatus === "final" ? "FINAL" : "DRAFT"}</Badge>
-              {doc.guidelineStatus !== "final" && doc.guidelineStatus !== "draft" && <span className="text-xs">Unknown publication status is treated as DRAFT.</span>}
+              <Badge className={doc.guidelineStatus === "final" ? "bg-slate-100 text-slate-700" : doc.guidelineStatus === "superseded" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}>
+                {doc.guidelineStatus === "final" ? "FINAL" : doc.guidelineStatus === "superseded" ? "SUPERSEDED" : "DRAFT"}
+              </Badge>
+              {doc.guidelineStatus !== "final" && doc.guidelineStatus !== "draft" && doc.guidelineStatus !== "superseded" && <span className="text-xs">Unknown publication status is treated as DRAFT.</span>}
+              {doc.title && <span className="w-full text-xs text-slate-500">{doc.title}{doc.version ? ` · v${doc.version}` : ""}</span>}
+              {doc.effectiveDate && <span className="text-xs">Effective {doc.effectiveDate}</span>}
+              {doc.reviewByDate && <span className="text-xs">Review by {doc.reviewByDate}</span>}
+              {doc.sourceUrl && <a className="text-xs underline" href={doc.sourceUrl} target="_blank" rel="noreferrer">Source</a>}
+              {doc.permissionNote && <span className="w-full text-xs text-slate-500">Permission: {doc.permissionNote}</span>}
             </div>
             <p className="text-sm text-slate-600">{doc.pageCount ?? "—"} pages · {parsedLength.toLocaleString()} parsed characters · {doc.chunkedPagesCount ?? 0} pages processed for chunking</p>
+            {doc.needsOcrPages && doc.needsOcrPages.length > 0 && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Needs OCR: pages {doc.needsOcrPages.join(", ")}. OCR is not included; those pages were not indexed. Review the PDF or add an OCR step before relying on this document.
+            </p>}
             {doc.chunkCounts ? <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
               {([["Total chunks", "total"], ["Pending review", "pending"], ["Accepted (awaiting embedding)", "accepted"], ["Rejected", "rejected"], ["Embedded", "embedded"]] as const).map(([label, key]) =>
                 <div key={key}><dt className="text-xs text-slate-600">{label}</dt><dd className="font-semibold text-slate-800">{doc.chunkCounts![key]}</dd></div>)}

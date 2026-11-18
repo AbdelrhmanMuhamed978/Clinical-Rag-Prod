@@ -8,7 +8,7 @@ namespace ClinicalRag.Api.Services;
 
 public interface IConfigService
 {
-    Task<ConfigVersion> GetPublishedAsync(Guid workspaceId);
+    Task<ConfigVersion> GetPublishedAsync(Guid workspaceId, CancellationToken cancellationToken = default);
     Task<ConfigVersion> CreateDraftAsync(Guid workspaceId, string configJson, Guid? userId, Guid? publishedConfigId = null);
     Task<IReadOnlyList<ConfigVersionDetails>> GetVersionsAsync(Guid workspaceId);
     Task<ConfigVersion?> PublishAsync(Guid workspaceId, Guid configId);
@@ -23,24 +23,25 @@ public class ConfigService : IConfigService
     public ConfigService(AppDbContext db, IConfigTestRunProvider? testRuns = null)
     {
         _db = db;
-        _testRuns = testRuns ?? new NoConfigTestRunProvider();
+        _testRuns = testRuns ?? new PersistedConfigTestRunProvider(db);
     }
 
-    public async Task<ConfigVersion> GetPublishedAsync(Guid workspaceId)
+    public async Task<ConfigVersion> GetPublishedAsync(Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        await using var transaction = await BeginLifecycleAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        await using var transaction = await BeginLifecycleAsync(cancellationToken);
         var c = await _db.ConfigVersions
             .Where(x => x.WorkspaceId == workspaceId && x.Status == "published")
-            .OrderByDescending(x => x.Version).FirstOrDefaultAsync();
+            .OrderByDescending(x => x.Version).FirstOrDefaultAsync(cancellationToken);
         if (c == null)
         {
             // bootstrap a default published config
-            var next = await NextVersionAsync(workspaceId);
+            var next = await NextVersionAsync(workspaceId, cancellationToken);
             c = new ConfigVersion { WorkspaceId = workspaceId, Version = next, Status = "published", ConfigJson = DefaultConfig(), PublishedAt = DateTime.UtcNow };
             _db.ConfigVersions.Add(c);
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
         }
-        if (transaction != null) await transaction.CommitAsync();
+        if (transaction != null) await transaction.CommitAsync(cancellationToken);
         return c;
     }
 
@@ -67,10 +68,10 @@ public class ConfigService : IConfigService
         var result = new List<ConfigVersionDetails>();
         foreach (var version in versions)
         {
-            var run = await LatestBoundRunAsync(version);
+            var gate = await LatestGateAsync(version);
             result.Add(new ConfigVersionDetails(version.Id, version.WorkspaceId, version.Version,
                 version.Status, version.ConfigJson, version.CreatedBy, version.CreatedAt, version.PublishedAt,
-                run, PublishBlockingReason(version, run)));
+                gate.LatestRun, gate.Reason, gate.Code));
         }
         return result;
     }
@@ -80,9 +81,8 @@ public class ConfigService : IConfigService
         await using var transaction = await BeginLifecycleAsync();
         var c = await _db.ConfigVersions.FirstOrDefaultAsync(x => x.Id == configId && x.WorkspaceId == workspaceId);
         if (c == null) return null;
-        var run = await LatestBoundRunAsync(c);
-        var blockingReason = PublishBlockingReason(c, run);
-        if (blockingReason != null) throw new ConfigLifecycleException(blockingReason);
+        var gate = await LatestGateAsync(c);
+        if (gate.Reason != null) throw new ConfigLifecycleException(gate.Reason, gate.Code!);
         // Never normalize/change the tested artifact during publication.
         var normalized = ConfigValidator.Normalize(c.ConfigJson);
         if (ConfigValidator.Fingerprint(normalized) != ConfigValidator.Fingerprint(c.ConfigJson))
@@ -91,9 +91,8 @@ public class ConfigService : IConfigService
         // Check again after validation/reads, before changing tracked objects or persisting anything.
         // Prompt 11's provider must share this transaction/lock with run creation (see its contract).
         await EnsureUnchangedAsync(c);
-        var latest = await LatestBoundRunAsync(c);
-        blockingReason = PublishBlockingReason(c, latest);
-        if (blockingReason != null) throw new ConfigLifecycleException(blockingReason);
+        gate = await LatestGateAsync(c);
+        if (gate.Reason != null) throw new ConfigLifecycleException(gate.Reason, gate.Code!);
         foreach (var p in prev) p.Status = "archived";
         c.Status = "published";
         c.PublishedAt = DateTime.UtcNow;
@@ -134,9 +133,9 @@ public class ConfigService : IConfigService
 
     // Serializable reads guard published-id preconditions, version allocation, and publication as one unit.
     // Nested bootstrap calls join the existing transaction; InMemory is a test-only nontransactional provider.
-    private async Task<IDbContextTransaction?> BeginLifecycleAsync() =>
+    private async Task<IDbContextTransaction?> BeginLifecycleAsync(CancellationToken cancellationToken = default) =>
         _db.Database.IsRelational() && _db.Database.CurrentTransaction == null
-            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable) : null;
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken) : null;
 
     private async Task EnsureUnchangedAsync(ConfigVersion version)
     {
@@ -150,8 +149,8 @@ public class ConfigService : IConfigService
             throw new DbUpdateConcurrencyException("Configuration changed. Refresh versions and try again.");
     }
 
-    private async Task<int> NextVersionAsync(Guid workspaceId) =>
-        (await _db.ConfigVersions.Where(x => x.WorkspaceId == workspaceId).MaxAsync(x => (int?)x.Version) ?? 0) + 1;
+    private async Task<int> NextVersionAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
+        (await _db.ConfigVersions.Where(x => x.WorkspaceId == workspaceId).MaxAsync(x => (int?)x.Version, cancellationToken) ?? 0) + 1;
 
     private async Task<ConfigVersion> AddDraftAsync(Guid workspaceId, string configJson, Guid? userId)
     {
@@ -162,16 +161,26 @@ public class ConfigService : IConfigService
         return draft;
     }
 
-    private async Task<ConfigTestRun?> LatestBoundRunAsync(ConfigVersion version)
+    private async Task<ConfigTestGate> LatestGateAsync(ConfigVersion version)
     {
-        var run = await _testRuns.GetLatestAsync(version.WorkspaceId, version.Id);
+        var gate = await _testRuns.GetGateAsync(version.WorkspaceId, version.Id);
+        var run = gate.LatestRun;
         if (run == null || run.Id == Guid.Empty || run.WorkspaceId != version.WorkspaceId || run.ConfigId != version.Id
             || run.ConfigVersion != version.Version || run.ConfigHash != ConfigValidator.Fingerprint(version.ConfigJson)
             || run.StartedAt < version.CreatedAt || run.CompletedSteps == null
             || run.CompletedSteps.Any(step => step is < 1 or > 6)
             || run.CompletedSteps.Distinct().Count() != run.CompletedSteps.Count)
-            return null;
-        return run;
+            run = null;
+        var reason = version.Status != "draft" ? "only drafts can be published" : gate.Reason ?? PublishBlockingReason(version, run);
+        var code = reason == null ? null : version.Status != "draft" ? "not_draft" : gate.Code ?? (reason switch
+        {
+            "no test run" => "case_missing_run",
+            "latest test run is still running" => "case_running",
+            "latest test run did not pass" => "case_failed",
+            "latest test run is not complete" => "case_incomplete",
+            _ => "invalid_evidence"
+        });
+        return new(run, code, reason);
     }
 
     private static string? PublishBlockingReason(ConfigVersion version, ConfigTestRun? run)

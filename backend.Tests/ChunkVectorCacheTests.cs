@@ -27,6 +27,32 @@ public class ChunkVectorCacheTests
     }
 
     [Fact]
+    public async Task A_changed_database_generation_reloads_without_process_invalidation()
+    {
+        using var cache = new ChunkVectorCache(); var id = Guid.NewGuid(); var loads = 0;
+        Task<ChunkSearchIndex> Load(CancellationToken _) => Task.FromResult(Index($"Generation {++loads}"));
+        var first = await cache.GetAsync(id, 7, Load);
+        Assert.Same(first, await cache.GetAsync(id, 7, Load));
+        var second = await cache.GetAsync(id, 8, Load);
+        Assert.NotSame(first, second);
+        Assert.Equal(2, loads);
+    }
+
+    [Fact]
+    public async Task Persisted_chunk_changes_bump_the_workspace_generation()
+    {
+        using var store = new DocumentTestStore(); var document = await store.AddDocumentAsync();
+        long Generation()
+        {
+            using var db = store.CreateContext();
+            return db.Workspaces.Single().SearchGeneration;
+        }
+        var before = Generation();
+        await store.AddChunkAsync(document, "embedded", "[1,0]");
+        Assert.True(Generation() > before);
+    }
+
+    [Fact]
     public async Task Concurrent_cache_misses_share_one_load()
     {
         using var cache = new ChunkVectorCache(); var id = Guid.NewGuid(); var release = Signal<ChunkSearchIndex>(); var loads = 0;

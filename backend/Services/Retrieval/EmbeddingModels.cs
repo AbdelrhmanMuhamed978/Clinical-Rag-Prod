@@ -10,6 +10,7 @@ public static class EmbeddingModels
     {
         var workspace = await db.Workspaces.SingleAsync(w => w.Id == workspaceId, cancellationToken);
         var spaces = await db.Chunks.AsNoTracking().Where(c => c.WorkspaceId == workspaceId
+                && !c.ReReviewRequired
                 && (c.Status == "accepted" || c.Status == "embedded") && c.Embedding != null)
             .Select(c => new { c.EmbeddingModel, Bytes = c.Embedding!.Length }).Distinct().ToListAsync(cancellationToken);
         if (spaces.Any(space => !EmbeddingVectors.ValidModel(space.EmbeddingModel)

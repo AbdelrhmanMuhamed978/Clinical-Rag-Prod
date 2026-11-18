@@ -2,6 +2,8 @@
 
 Clinical guideline decision support (pipeline v3.2). Only recommendations that pass deterministic quote, number, wording and scope checks appear as answers. This is not a substitute for clinical judgement; use de-identified cases only.
 
+New to the application? Start with the [user guide](docs/user-guide.md) for upload, chunking, review, Playground, tests, publishing, rules and troubleshooting.
+
 ## Services and data flow
 
 | Service | Local URL | Responsibility |
@@ -21,12 +23,22 @@ ASP.NET -- X-Colab-Key ------> Colab /embed and /rerank
 The verified pipeline runs as its own Python service, **not on Colab**. The web analysis path does not use Colab's legacy Mongo `/retrieve` route and does not perform LLM query decomposition inside ASP.NET.
 
 1. ASP.NET requires workspace **editor** access for analysis and selects the published configuration (a default published version is bootstrapped for a new workspace). Draft versions never serve live analyses.
-2. Every Python request constructs an isolated `config.Config`; only that workspace's currently reviewed, approved and enabled database rules are supplied. Web requests never fall back to the local `rules.json` table.
-3. For cases, `facts.py` extracts values and evaluates rules in code. Planning combines grounded model suggestions with deterministic problem detection. Short questions use reference-aware rewriting.
+2. Every Python request constructs an isolated `config.Config`; only that workspace's currently reviewed, approved and enabled database rules are supplied. Web requests never fall back to the local `python-backend/rules.json` table.
+3. For cases, `python-backend/facts.py` extracts values and evaluates rules in code. A question is any interrogative input or any input with no extracted vitals/labs/drugs/age/sex, regardless of length; case planning uses facts. Question plans map each problem to a stated `covers` substring and reject unmapped problems. Short questions use reference-aware rewriting.
 4. Python retrieves focused queries through ASP.NET. ASP.NET embeds each query, searches a cached float32 workspace index plus SQL Full-Text or BM25, fuses ranks with RRF and reranks at most 30 candidates; Python merges sources per problem.
-5. Colab drafts `SOURCE / RECOMMENDATION / QUOTE` items. Python verifies quotations against retrieved text, numbers, wording strength, scope, conditions, negation and topic. Truncated generations are rejected.
-6. The response is the pipeline schema: `plan_source`, `problems`, `not_covered`, `warnings`, `disclaimer` and `version`. Verified items include quotations and source-derived citation metadata. Excluded drafts and verifier reasons stay inside a collapsed **Unverified (not shown as answers)** disclosure; they never enter copy/export or verified memory.
+5. Colab drafts `SOURCE / RECOMMENDATION / QUOTE` items. Python verifies quotations against retrieved text through one canonical formatting view (Unicode NFKC, entities, whitespace/dash/punctuation and parser-recorded footnote markers), requires an exact canonical substring, allows one exact table row label plus one exact cell, and still checks numbers, wording strength, scope, conditions, negation and topic. Truncated generations are rejected. Verified items are then scored against the question with the Colab reranker plus deterministic term overlap; below-threshold items move to a non-lead **Related, may not answer your question** group.
+6. The response is the pipeline schema: `plan_source`, `problems`, `related`, `coverage`, `not_covered`, `warnings`, `disclaimer` and `version`. Each question part has an answered / related-only / not-covered coverage row. Verified items include quotations and source-derived citation metadata. Excluded drafts and verifier reasons stay inside a collapsed **Unverified (not shown as answers)** disclosure; they never enter copy/export or verified memory.
 7. **Not covered** means no verifiable answer was found in the loaded guidelines, not that a topic is unimportant or safe. Processing failures appear separately as **Analysis incomplete**, with coverage unknown. Verifier locks and these distinctions cannot be disabled by workspace settings.
+
+## Repository layout
+
+- `python-backend/` — local deterministic Python service, core pipeline modules, shared config/JSON assets and its `requirements.txt`.
+- `colab/` — GPU model server, notebook and Colab bootstrap.
+- `backend/` — ASP.NET API.
+- `frontend/` — Next.js UI.
+- `eval/`, `tests/`, `scripts/` — evaluation, regression tests and tooling.
+
+See [Python backend layout](docs/python-backend-layout.md) for the service command and import-resolution details.
 
 ## Configuration and startup
 
@@ -52,7 +64,7 @@ See [CI validation and current red items](docs/ci-validation.md) and the [saved 
 
 ### 1. Colab
 
-Open `colab/clinical_rag_colab.ipynb` with a GPU runtime and run the cells in order. Configure `COLAB_API_KEY` (16–4096 printable ASCII characters without spaces), `ASPNET_BACKEND_URL` (public HTTPS backend origin) and `COLAB_REGISTRATION_SECRET` in Colab Secrets **before** starting the public tunnel. The registration secret must match backend `Colab__RegistrationSecret`; the backend must already be running with the operations migration applied. All model, legacy retrieval, parsing and chunking routes require `X-Colab-Key`; only minimal `/health` is public. Long chunking operations use `/chunk/jobs` and are polled by ASP.NET.
+Open `colab/clinical_rag_colab.ipynb` with a GPU runtime and run the cells in order. Configure `COLAB_API_KEY` (16–4096 printable ASCII characters without spaces), `ASPNET_BACKEND_URL` (public HTTPS backend origin) and `COLAB_REGISTRATION_SECRET` in Colab Secrets **before** starting the public tunnel. The registration secret must match backend `Colab__RegistrationSecret`; the backend must already be running with the operations migration applied. All model, legacy retrieval, parsing and chunking routes require `X-Colab-Key`; only minimal `/health` is public. Bounded chunking batches use `/chunk/jobs`; the ASP.NET background worker owns Colab polling and persists progress per batch. The browser polls a lightweight workspace-scoped processing-state view and refreshes the full chunk evidence only when state changes or on demand.
 
 The tunnel cell waits for local model readiness, registers the rotating URL/key in ASP.NET's protected database setting, then sends approximately 30-second heartbeats. Neither ASP.NET nor the production Python service uses an appsettings/environment Colab URL/key fallback. Settings shows model/GPU/heartbeat status; only a provisioned platform administrator can edit the connection or enable manual override. After releasing override, rerun the tunnel/registration cell.
 
@@ -60,18 +72,21 @@ The user's bearer token is sent only to ASP.NET retrieval, never to Colab. The C
 
 ### 2. Python pipeline
 
-Use a separate environment with the existing `requirements.txt`. Example PowerShell commands from the repository root:
+The local Python service and its deterministic pipeline modules live in
+[`python-backend/`](python-backend/). Use a separate environment with
+`python-backend/requirements.txt`. Example PowerShell commands from the
+repository root:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r python-backend/requirements.txt
 
 # Supply secrets securely in this service's environment, not in source files.
 $env:PIPELINE_SERVICE_KEY = "<pipeline shared secret>"
 $env:PIPELINE_RETRIEVE_BASE_URL = "http://localhost:5100"
 $env:PIPELINE_TIMEOUT_SECONDS = "240"
-python -m uvicorn pipeline_service.app:app --host 127.0.0.1 --port 8100 --no-access-log
+python -m uvicorn --app-dir python-backend pipeline_service.app:app --host 127.0.0.1 --port 8100 --no-access-log
 ```
 
 `POST /analyze` returns JSON; `POST /analyze/stream` emits real `progress`, then `result` or `error` SSE events. Both require `X-Pipeline-Key` **and** a bearer token. ASP.NET supplies `text`, `config`, `rules`, `history`, `workspaceId`, `retrieveUrl` and optional `conversationId`; the browser must not supply trusted configuration or rules directly to this service.
@@ -107,8 +122,10 @@ Copy only the public API/Firebase settings from `.env.example` to `frontend/.env
 
 - Guideline embeddings are generated in batches of **32** by default, with bounded transient retries and a durable transaction per batch. Cancellation/failure retains successful batches; retry processes only the remaining accepted chunks. Committed chunk entities are detached to bound tracking memory.
 - Every vector requires a valid `model` and exact `dimensions`, and is normalized into little-endian float32 `varbinary(max)`. Mixed model identities/dimensions are refused, including differently cased model names. Changing encoders requires invalidating all active workspace vectors first, not relabelling old bytes.
-- Retrieval uses a contiguous `System.Numerics.Tensors` dense index and `Text + Section` lexical search. SQL Server Full-Text is optional; otherwise an immutable BM25 inverted index is used. RRF uses **k=60**; configured candidates default to 30 and are effectively capped at 30 without changing the Workflow schema's 5–100 range.
-- Reranking receives at most **30 passages**, each limited to **2,000 Unicode code points** including its section. Returned source text is not truncated. The process-local cache defaults to **512 MiB / 120 seconds**; application commits invalidate it on embedding, review, edit and deletion. Other API instances/direct SQL writers are not distributed invalidation participants.
+- Ingestion binds each chunk to deterministic structure metadata: `kind` (`recommendation`, `definition`, `table_row`, `clinical_consideration` or `summary`), title, year, verbatim body, strength, certainty, population and a stable recommendation ID. Graded recommendation-table rows are split into one atomic object per row with the header repeated; ungraded tables remain atomic. Adjacent recommendations cannot share a grade. See [semantic ingestion and retrieval](docs/semantic-ingestion-retrieval.md).
+- Retrieval uses a contiguous `System.Numerics.Tensors` dense index and `Text + Section` lexical search. SQL Server Full-Text is optional; otherwise an immutable BM25 inverted index is used. RRF uses **k=60**. The focused query is expanded with deterministic domain synonyms from `python-backend/query-synonyms.json` (up to four variants); each variant contributes a dense and a lexical leg. Definition and summary sections receive a deterministic boost for definitional or broad questions. Configured candidates default to 30 and are effectively capped at 30 without changing the Workflow schema's 5–100 range. Optional HyDE (`retrieval.hydeEnabled`, default false) adds one hypothetical-answer query; model failure is non-fatal.
+- Reranking receives at most **30 passages**, each limited to **2,000 Unicode code points** including its section. The Colab cross-encoder scores the exact question; a deterministic intent-alignment penalty then demotes narrow exception passages (for example TB-specific timing) on broad population questions. Returned source text is not truncated. The process-local cache defaults to **512 MiB / 120 seconds**; application commits invalidate it on embedding, review, edit and deletion. Other API instances/direct SQL writers are not distributed invalidation participants.
+- Quote verification uses one canonical view that removes a hyphen lost at a PDF line wrap (`highdose` matches `high-dose`) while preserving digit ranges (`100-200`) and number-unit pairs (`24-hour`). Negation, number, strength and scope checks are unchanged.
 - Fresh synthetic **10,000 × 768** measurements: warm LocalDB/BM25 production retrieval **12.108 ms p50 / 34.370 ms p95**; cached hybrid search alone **4.517 / 7.714 ms**. The original EF InMemory path still misses 100 ms (**97.630 / 122.799 ms**). Both use stub models; deployed SQL/GPU/network/concurrency and clinical quality remain unverified. Original JSON-to-binary before/after artifacts are preserved separately; none of these results authorize Workflow publication.
 
 See [deployment and cache guidance](docs/retrieval-deployment.md) before upgrading an existing index, and the [PR-ready description and validation results](docs/hybrid-retrieval-pr.md) for measured tradeoffs and remaining acceptance gaps.
@@ -139,8 +156,9 @@ Editors can create/edit rule definitions but cannot self-approve by posting revi
 
 - **Settings** lets owners invite by email, cancel pending invitations, change/remove members, rename and soft-delete a workspace. All members can leave, but the last owner cannot leave, be removed or be demoted; assign another owner first. Reviewer is a separate **rule-review** capability, not editor or administrator access.
 - An invitation saves **pending access**, not an email delivery. Share the app URL with the invitee. Access is accepted only when the same verified Firebase email next makes an authenticated request; other emails, unverified users and development identities cannot accept it. A stale invitation never upgrades an existing member. Owner invitations require an explicit full-administration warning and confirmation.
-- Workspace deletion denies access and removes the workspace from lists. Documents, chunks, guidance and uploaded files are deleted; the workspace tombstone, memberships and non-document history remain. Failed file cleanup is durably queued, not silently forgotten. This is **not** complete account/data erasure or a recoverable archive.
-- **Chunk Review → Document reset controls** separates confirmed reset from re-chunking: resetting 1–1000 parsed pages deletes overlapping chunks/vectors and clears their processed-page flags. A spanning chunk also resets its other covered pages; disjoint selections do not delete gap chunks. The PDF and saved guidance remain. Explicitly choose **Chunk Selected** afterwards; reset never starts Colab automatically.
+- Workspace deletion denies access and removes the workspace from lists. Documents, chunks, chunk jobs, guidance and uploaded files are deleted; the workspace tombstone, memberships and non-document history remain. Failed file cleanup is durably queued, not silently forgotten. This is **not** complete account/data erasure or a recoverable archive.
+- **Chunk Review → Document reset controls** separates confirmed reset from re-chunking: resetting 1–1000 parsed pages deletes overlapping chunks/vectors and clears their processed-page flags. A spanning chunk also resets its other covered pages; disjoint selections do not delete gap chunks. The PDF and saved guidance remain. Afterwards explicitly start a background chunk job (or use the legacy **Chunk Selected** bridge); reset never starts Colab automatically.
+- **Background chunk jobs** persist page checkpoints and settings, survive page reload, and are owned by a hosted worker rather than the HTTP request. The UI can pause after the current batch, resume, cancel, retry failed/remaining pages, and control polling for the whole page (auto-poll, 2/5/10/30-second interval, poll now, stop polling; preference saved per document). Closing the page or stopping polling does not cancel the job; only pause/cancel do. Per-batch failures honour `continue` or `stop`, and retry creates a new linked job while retaining history.
 - **Reset embeddings** keeps source text, review attribution and processed-page flags, clears all vector fields/progress, and returns embedded chunks to accepted for explicit re-embedding. Processing claims/concurrency conflicts block unsafe resets and reviews.
 - Guidance from valid chunk requests is persisted and prefills the latest saved value without overwriting local edits. Chunk review/bulk acceptance/merge record the authenticated reviewer. Edited reviewed text/sections return to accepted with vectors cleared; clients cannot mark chunks embedded. Merges require same-document adjacent/overlapping, valid page ranges and compatible source years, preserving sections and strongest grades; content-only imports always start pending.
 - Workspace exit cancels scoped reads before dropping caches. Owned mutations are aborted and late callbacks ignored after user/workspace replacement or detected permission loss. Chunk Review requires verified editor/owner access and checks it while requests are in flight.
@@ -151,7 +169,7 @@ See the [administration routes, cleanup and migration runbook](docs/operations.m
 
 Workflow exposes Read case, Plan, Retrieve, Draft, Verify and Reconcile settings, complete JSON preview and version differences. Read case displays shared canonical units and unitless count assumptions. Verifier explanations cover quote/citation, number, strength, scope, condition, negation, topic and truncation checks. Both panels are read-only; Reconcile edits existing rule link terms and uses the separate clinician-review flow above.
 
-- Parsing/initialization does not reset typing on refetch. Complete source snapshots retain untouched and unknown keys; defaults and validation come from `config/config.schema.json` and the existing default prompts.
+- Parsing/initialization does not reset typing on refetch. Complete source snapshots retain untouched and unknown keys; defaults and validation come from `python-backend/config/config.schema.json` and the existing default prompts.
 - Version differences distinguish nested `future.a.b` from literal `future["a.b"]` and safely escape quotes, brackets and empty keys.
 - Retrieval limits are `minRerank` 0–1, `topK`/`maxChunks` 1–20, `candidates` 5–100 and `queriesPerProblem` 1–5. Required prompt variables are literal tokens; JSON braces and other tokens remain allowed. The server forces `safety.verifierLocked=true` and never permits `minQuoteMatch` below 0.88.
 - Focused ASP.NET retrieval uses safe shared defaults for incomplete/invalid legacy settings and honors whole-number JSON such as `10.0` and `1e1`; it never performs LLM query planning.
@@ -181,6 +199,8 @@ Migrations live in `backend/Data/Migrations/`. `Initial` includes the analysis a
 Workflow's `Status`/`ConfigJson` concurrency tokens are EF metadata changes, not new columns, so they require no new DDL migration. The `TestRunHarness` migration adds harness run storage, but this does not provide trusted publication evidence while `NoConfigTestRunProvider` remains registered.
 
 `20261115155603_WorkspaceAdministration` adds workspace deletion fields/shared membership revision, pending invitations, durable file-cleanup records and the latest-guidance index. Apply the reviewed `db/schema.sql` before starting this API version and drain old instances: old code does not enforce deleted-workspace denial. Management downgrade refuses with SQL error **51002** while any tombstone, invitation or cleanup record exists; never remove tombstones simply to bypass it. See [management migration and rollback](docs/operations.md#management-migration-and-rollback).
+
+`20261117102730_ReparseMetadata` adds `Documents.FootnoteMarkers` and `Chunks.ReReviewRequired` for non-destructive re-parsing. It does not rewrite existing text. The parser, chunker and verifier share `evidence_text.py` normalization; re-parsing compares pages and only marks chunks overlapping changed pages for re-review, clearing their stale vectors. See [parser artifact normalization and re-parse](docs/operations.md#parser-artifact-normalization-and-re-parse).
 
 `Program.cs` runs migrations only when `Database:AutoMigrate` is enabled (default true in Development). Production should set it to false and apply a reviewed idempotent script:
 
@@ -214,6 +234,12 @@ npm run build
 The subsequent management audit passed **501 Vitest, 15 Node and 347 Python tests**, TypeScript, changed-file ESLint and the frontend production/backend Release builds. Full backend validation has **650 passed / 2 failed / 652 total**: the unchanged failures are `TestHarnessTests.Comparer_detects_missing_and_unexpected_problems` and `TestHarnessTests.Failing_expectation_makes_run_fail_with_diff`. Full lint retains the same 3 errors/7 warnings. Fresh/idempotent SQL migration and 51002 downgrade-guard tests passed on isolated databases; **no deployment database was migrated**. See [management validation and live checklist](docs/operations.md#management-validation--15-november-2026).
 
 The latest **operations follow-up** passed **669 backend tests / the same 2 harness failures / 671 total**, **372 Python**, **543 Vitest + 15 Node**, TypeScript, changed-file ESLint and backend Release/frontend production builds. Full lint retains the same 3 errors/7 warnings. See [operations validation and rollout checklist](docs/operations.md#operations-validation--15-november-2026); live notebook/GPU/Firebase acceptance remains unverified.
+
+The latest **ingestion artifact/re-parse change** passed **914 backend**, **613 Python**, **582 Vitest + 19 Node**, `npx tsc --noEmit`, full ESLint, the frontend production build and backend Debug/Release builds. Synthetic fixtures cover double-escaped entities, superscript footnote markers, wrapped dashes, table cells, formatting-only quote matching, table row/cell evidence, negation/number/comparison-symbol rejection, question/case classification, mapped question parts, reranker-plus-overlap relevance, coverage status, citation-name deduplication, readable section hierarchy and text-derived grade handling. A local real-PDF spot check of p.11/p.27/p.40/p.41 layouts produced no stored entities, no fused `Screeningc` marker and no `antigen– positive` wrap; the p.40 narrative returns no borrowed strength, and the p.41 unavailable-screening statement verified against the real parsed page text through the canonical verifier. Hosted CI was not rerun for this uncommitted worktree; these local results are not clinical validation.
+
+The 17 November **CrAg evaluation/export follow-up** passed **915 backend**, **615 Python**, **584 Vitest + 19 Node**, `npx tsc --noEmit`, full ESLint and the frontend production build. It adds a pending real-guideline CrAg case (`expectedMode: question`, p.41/p.11) without inventing the clinician's screening-unavailable expectation, mode/pending-label metrics, question-mode topic labels in “Not covered” exports, and a deterministic before/after verifier replay. Verified-rate stayed **1/1**, the rejection count stayed `negation_conflict=1`, and the verified item no longer requires fuzzy quote rewriting. hit@k and mode accuracy remain unmeasured because no retrieval/model run was available; the screening-unavailable label remains pending clinician extraction. The rebuilt source archive `clinical-rag-colab-source-20261117-python-backend-v16.zip` (SHA-256 `6f63a091d208d9f9cede62eab262685f8d12e71a27e3c427908c1f0799ef9ab5`) includes the relocated `python-backend/`, clinical eval and loadtest assets; its extracted offline suite passed **615 Python tests** on local Python 3.13.6, not Colab Python 3.12. See [CrAg screening evaluation](docs/crag-screening-eval-2026-11-17.md).
+
+The 17 November **semantic ingestion/retrieval** work passed **929 backend**, **626 Python**, **584 Vitest + 19 Node**, `npx tsc --noEmit`, full ESLint and the frontend production build. It adds atomic recommendation metadata, graded table-row splitting, deterministic synonym expansion, definition/summary boosting, cross-encoder intent alignment, optional HyDE and hyphenation-tolerant quote matching. The rebuilt source archive `clinical-rag-colab-source-20261117-semantic-v18.zip` (SHA-256 `b84f60cbf0aa1bbdc7b17c8a6e16b789b0ec03a2a7a5d5f46f0005067da40b55`) passed **626 Python tests** when extracted locally. The synthetic retrieval gate passed with `mrrAt8` **0.7917 → 0.8333** and `ndcgAt8` **0.8462 → 0.8770**; the InMemory p95 was **137.436 ms**, so this is a quality improvement, not a latency claim. See [semantic ingestion and retrieval](docs/semantic-ingestion-retrieval.md).
 
 Live deployment validation additionally requires a running Colab GPU model server, matching service secrets, Firebase authentication and loaded guideline data; mocked/unit tests do not prove model startup or live clinical output quality.
 

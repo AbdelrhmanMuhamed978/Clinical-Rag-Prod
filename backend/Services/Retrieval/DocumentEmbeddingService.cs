@@ -18,6 +18,7 @@ public sealed class DocumentEmbeddingService(AppDbContext db, EmbeddingBatchClie
         if (document == null) return new(404);
         if (DocumentLifecycle.IsBusy(document)) return new(409, Error: BusyReason);
         var pending = db.Chunks.Where(c => c.WorkspaceId == workspaceId && c.DocumentId == documentId
+            && !c.ReReviewRequired
             && (c.Status == "accepted" || (c.Status == "embedded" && (c.Embedding == null || c.Embedding.Length < sizeof(float) || c.EmbeddingModel == null || c.EmbeddingModel == ""))));
         var total = await pending.CountAsync(cancellationToken);
         if (total == 0)

@@ -53,6 +53,45 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.ToTable("AnalysisRuns");
                 });
 
+            modelBuilder.Entity("ClinicalRag.Api.Models.AnswerFlag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AnalysisRunId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("ConfigVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnalysisRunId");
+
+                    b.HasIndex("WorkspaceId", "CreatedAt");
+
+                    b.ToTable("AnswerFlags");
+                });
+
             modelBuilder.Entity("ClinicalRag.Api.Models.Chunk", b =>
                 {
                     b.Property<Guid>("Id")
@@ -93,6 +132,9 @@ namespace ClinicalRag.Api.Data.Migrations
 
                     b.Property<int?>("PageStart")
                         .HasColumnType("int");
+
+                    b.Property<bool>("ReReviewRequired")
+                        .HasColumnType("bit");
 
                     b.Property<DateTime?>("ReviewedAt")
                         .HasColumnType("datetime2");
@@ -145,6 +187,140 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.HasIndex("WorkspaceId", "Status");
 
                     b.ToTable("Chunks");
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
+                });
+
+            modelBuilder.Entity("ClinicalRag.Api.Models.ChunkJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("BatchSize")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BatchTimeoutSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("CancelRequested")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CompletedBatches")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CompletedPagesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("CurrentBatchEnd")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CurrentBatchStart")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("FailedPagesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FailureMode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("Guidance")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime?>("LastHeartbeatAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime?>("LeaseUntil")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("MaxRetries")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MaxTokens")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PagesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("PauseRequested")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("RetryOfJobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.Property<string>("SkippedPagesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<int>("TotalBatches")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId", "Status");
+
+                    b.HasIndex("Status", "LeaseUntil");
+
+                    b.HasIndex("WorkspaceId", "CreatedAt");
+
+                    b.ToTable("ChunkJobs", t =>
+                        {
+                            t.HasCheckConstraint("CK_ChunkJobs_BatchSize", "[BatchSize] BETWEEN 1 AND 10");
+
+                            t.HasCheckConstraint("CK_ChunkJobs_FailureMode", "[FailureMode] IN ('continue', 'stop')");
+
+                            t.HasCheckConstraint("CK_ChunkJobs_MaxTokens", "[MaxTokens] BETWEEN 100 AND 2000");
+
+                            t.HasCheckConstraint("CK_ChunkJobs_Retries", "[MaxRetries] BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("CK_ChunkJobs_Revision", "[Revision] >= 1");
+
+                            t.HasCheckConstraint("CK_ChunkJobs_Timeout", "[BatchTimeoutSeconds] BETWEEN 60 AND 600");
+                        });
                 });
 
             modelBuilder.Entity("ClinicalRag.Api.Models.ChunkerGuidance", b =>
@@ -270,6 +446,9 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("EffectiveDate")
+                        .HasColumnType("datetime2");
+
                     b.Property<int?>("EmbeddingBatchSize")
                         .HasColumnType("int");
 
@@ -294,10 +473,17 @@ namespace ClinicalRag.Api.Data.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<string>("FootnoteMarkers")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("GuidelineStatus")
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("NeedsOcrPages")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
 
                     b.Property<int?>("PageCount")
                         .HasColumnType("int");
@@ -305,9 +491,16 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.Property<string>("ParsedText")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("PermissionNote")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
                     b.Property<string>("ProcessingOperation")
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime?>("ReviewByDate")
+                        .HasColumnType("datetime2");
 
                     b.Property<int>("Revision")
                         .IsConcurrencyToken()
@@ -318,12 +511,20 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.Property<string>("Society")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("SourceUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
                     b.Property<string>("StoragePath")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("Title")
                         .HasMaxLength(512)
                         .HasColumnType("nvarchar(512)");
 
@@ -335,6 +536,10 @@ namespace ClinicalRag.Api.Data.Migrations
 
                     b.Property<Guid?>("UploadedBy")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uniqueidentifier");
@@ -387,6 +592,10 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.Property<string>("AppliesWhen")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("ApprovedSourceUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
                     b.Property<bool>("CaseLevel")
                         .HasColumnType("bit");
 
@@ -424,6 +633,10 @@ namespace ClinicalRag.Api.Data.Migrations
 
                     b.Property<int?>("ReviewedCatalogRevision")
                         .HasColumnType("int");
+
+                    b.Property<string>("ReviewerName")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<int>("Revision")
                         .IsConcurrencyToken()
@@ -539,10 +752,19 @@ namespace ClinicalRag.Api.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId");
 
                     b.ToTable("TestCases");
                 });
@@ -555,6 +777,9 @@ namespace ClinicalRag.Api.Data.Migrations
 
                     b.Property<Guid>("CaseId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("CaseRevision")
+                        .HasColumnType("int");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("datetime2");
@@ -574,6 +799,10 @@ namespace ClinicalRag.Api.Data.Migrations
 
                     b.Property<double>("DurationMilliseconds")
                         .HasColumnType("float");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
 
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("datetime2");
@@ -630,6 +859,9 @@ namespace ClinicalRag.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("AllowSupersededGuidelines")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -664,6 +896,11 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<long>("SearchGeneration")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.HasKey("Id");
 
                     b.HasIndex("OwnerId");
@@ -671,6 +908,8 @@ namespace ClinicalRag.Api.Data.Migrations
                     b.ToTable("Workspaces", t =>
                         {
                             t.HasCheckConstraint("CK_Workspaces_EmbeddingDimensions", "[EmbeddingDimensions] IS NULL OR [EmbeddingDimensions] BETWEEN 1 AND 16384");
+
+                            t.HasCheckConstraint("CK_Workspaces_SearchGeneration", "[SearchGeneration] >= 0");
                         });
                 });
 
@@ -761,6 +1000,17 @@ namespace ClinicalRag.Api.Data.Migrations
                 });
 
             modelBuilder.Entity("ClinicalRag.Api.Models.Chunk", b =>
+                {
+                    b.HasOne("ClinicalRag.Api.Models.Document", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
+            modelBuilder.Entity("ClinicalRag.Api.Models.ChunkJob", b =>
                 {
                     b.HasOne("ClinicalRag.Api.Models.Document", "Document")
                         .WithMany()

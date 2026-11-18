@@ -89,3 +89,13 @@ def test_pipeline_eval_remains_separate_and_requires_explicit_mode(monkeypatch):
     assert run_eval.main(["--mode", "pipeline", "--questions", "pending.jsonl", "--output-dir", "experimental"]) == 4
     assert commands == [[sys.executable, str(run_eval.ROOT / "eval/run_pipeline_eval.py"),
                          "--questions", "pending.jsonl", "--output-dir", "experimental"]]
+
+
+def test_clinical_eval_dispatches_to_the_dedicated_runner(monkeypatch):
+    commands = []
+    monkeypatch.setattr(run_eval.subprocess, "call", lambda command: commands.append(command) or 4)
+    assert run_eval.main(["--mode", "clinical", "--clinical-set", "clinical.json",
+                          "--allow-synthetic", "--output-dir", "results"]) == 4
+    assert commands == [[sys.executable, str(run_eval.ROOT / "eval/run_clinical_eval.py"),
+                         "--clinical-set", "clinical.json", "--allow-synthetic",
+                         "--output-dir", "results"]]

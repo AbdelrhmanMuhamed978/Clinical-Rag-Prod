@@ -14,10 +14,11 @@ public interface IColabClient
     Task<JsonElement> EmbedAsync(List<string> texts, CancellationToken cancellationToken = default);
     Task<JsonElement> RerankAsync(string query, List<string> passages, CancellationToken cancellationToken = default);
     Task<JsonElement> ParsePdfAsync(byte[] bytes, string fileName, CancellationToken cancellationToken = default);
-    Task<JsonElement?> RunChunkJobAsync(JsonElement body, CancellationToken cancellationToken = default);
+    Task<JsonElement?> RunChunkJobAsync(JsonElement body, int? timeoutSeconds = null, CancellationToken cancellationToken = default);
 }
 
-public sealed record ColabGpuInfo(bool Available, string? Name, string Device, long? TotalMemoryBytes);
+public sealed record ColabGpuInfo(bool Available, string? Name, string Device, long? TotalMemoryBytes,
+    long? UsedMemoryBytes = null, long? AllocatedMemoryBytes = null, long? PeakAllocatedBytes = null);
 public sealed record ColabReadiness(bool Ready, string? Model = null, string? EmbeddingModel = null,
     int? EmbeddingDimensions = null, ColabGpuInfo? Gpu = null, string? Message = null);
 
@@ -63,10 +64,15 @@ public sealed class ColabClient : IColabClient
             if (body.TryGetProperty("gpu", out var details) && details.ValueKind == JsonValueKind.Object)
             {
                 var device = SafeName(details, "device");
-                long? memory = details.TryGetProperty("totalMemoryBytes", out var bytes) && bytes.TryGetInt64(out var count)
-                    && count is > 0 and <= 1099511627776 ? count : null;
+                static long? Memory(JsonElement value, string name, bool positive)
+                {
+                    return value.TryGetProperty(name, out var bytes) && bytes.TryGetInt64(out var count)
+                        && count is >= 0 and <= 1099511627776 && (!positive || count > 0) ? count : null;
+                }
                 gpu = new(details.TryGetProperty("available", out var available) && available.ValueKind == JsonValueKind.True,
-                    SafeName(details, "name"), device is "cuda" or "cpu" ? device : "unknown", memory);
+                    SafeName(details, "name"), device is "cuda" or "cpu" ? device : "unknown",
+                    Memory(details, "totalMemoryBytes", positive: true), Memory(details, "usedMemoryBytes", positive: false),
+                    Memory(details, "allocatedMemoryBytes", positive: false), Memory(details, "peakAllocatedBytes", positive: false));
             }
             return new(ready.GetBoolean() && model != null, model, embeddingModel, dimensions, gpu,
                 ready.GetBoolean() && model != null ? null : new DependencyUnavailableException("colab").PublicMessage);
@@ -115,12 +121,12 @@ public sealed class ColabClient : IColabClient
         return await SendAsync(connection, HttpMethod.Post, "parse-pdf", content, "colab.parse_pdf", TimeoutSeconds, true, cancellationToken);
     }
 
-    public async Task<JsonElement?> RunChunkJobAsync(JsonElement body, CancellationToken cancellationToken = default)
+    public async Task<JsonElement?> RunChunkJobAsync(JsonElement body, int? timeoutSeconds = null, CancellationToken cancellationToken = default)
     {
         // Pin submission and every poll to one runtime. Rotation must not poll a different runtime's job IDs.
         var connection = await _connections.GetAsync(cancellationToken);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
+        deadline.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds ?? TimeoutSeconds, 30, 3600)));
         var token = deadline.Token;
         var input = Text(body);
         _log.LogInformation("Step input {Step} {InputHash} {InputLength}", "colab.chunk.submit", OperationTelemetry.InputHash(input), input.Length);
@@ -141,7 +147,7 @@ public sealed class ColabClient : IColabClient
                 if (state.GetString() is not ("running" or "queued")) return null;
             }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new DependencyUnavailableException("colab", retryable: true); }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new DependencyUnavailableException("colab", retryable: true, failureCode: "timeout"); }
         catch (HttpRequestException exception) when (exception is not DependencyUnavailableException && exception.StatusCode is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError)
         { return null; }
     }

@@ -73,7 +73,7 @@ def install_environment(root: Path) -> Path:
                         str(root / ".venv-colab")], check=True)
     print("Installing GPU packages (several GB; progress below)...", flush=True)
     subprocess.run([sys.executable, "-m", "uv", "pip", "install", "--python", str(python),
-                    "--only-binary", ":all:", "-r", str(root / "requirements.txt"),
+                    "--only-binary", ":all:", "-r", str(root / "python-backend" / "requirements.txt"),
                     "-r", str(root / "requirements-colab.txt")], check=True)
     subprocess.run([sys.executable, "-m", "uv", "pip", "check", "--python", str(python)], check=True)
     subprocess.run([str(python), "-c", "import torch, transformers, vllm; "

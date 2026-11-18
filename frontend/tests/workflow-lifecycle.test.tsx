@@ -4,7 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigTestRun, ConfigVersion, ConfigVersionDetails, Rule } from "@/lib/types";
 import WorkflowPage from "@/app/(app)/w/[workspaceId]/workflow/page";
-import vocabulary from "../../clinical-vocabulary.json";
+import { seriousViolations } from "./axe";
+import { tabTo } from "./keyboard";
+import vocabulary from "../../python-backend/clinical-vocabulary.json";
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
 vi.mock("@/lib/api", () => ({ ...api, ApiError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
@@ -34,12 +36,13 @@ function testRun(version: ConfigVersion, status = "passed", steps = [1, 2, 3, 4,
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   clients.push(client);
-  render(<QueryClientProvider client={client}><WorkflowPage /></QueryClientProvider>);
-  return { client, user: userEvent.setup() };
+  const view = render(<QueryClientProvider client={client}><WorkflowPage /></QueryClientProvider>);
+  return { client, user: userEvent.setup(), container: view.container, unmount: view.unmount };
 }
 async function ready() { await screen.findByText("Published v1"); await screen.findByLabelText("Configuration version"); }
 
 beforeEach(() => {
+  api.get.mockReset(); api.post.mockReset(); api.patch.mockReset();
   role = "owner"; rules = [];
   published = { id: "published-1", workspaceId: "workspace-1", version: 1, status: "published",
     configJson: JSON.stringify(config), createdAt: "2026-11-15T00:00:00Z" };
@@ -71,6 +74,115 @@ beforeEach(() => {
 afterEach(() => clients.splice(0).forEach(client => client.clear()));
 
 describe("Workflow lifecycle and real test evidence", () => {
+  it("has no serious or critical structural axe issues", async () => {
+    const view = mount(); await screen.findByText("Published v1");
+    expect(await seriousViolations(view.container, "workflow")).toEqual([]);
+  });
+
+  it("opens workflow step settings with the keyboard and moves focus to the settings heading", async () => {
+    const { user } = mount(); await ready();
+    const verify = await tabTo(user, element => element.tagName === "BUTTON" && element.textContent?.includes("Verify") === true, "Verify step");
+    expect(verify.getAttribute("aria-current")).toBeNull();
+    await user.keyboard("{Enter}");
+    const heading = await screen.findByRole("heading", { name: "Verify settings" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(verify.getAttribute("aria-current")).toBe("step");
+    expect(verify.getAttribute("aria-controls")).toBe("workflow-settings-panel");
+  });
+
+  it("keeps publication disabled until a successful server gate refresh completes", async () => {
+    const originalGet = api.get.getMockImplementation()!;
+    let refreshRequested = false;
+    let finishGate!: (value: unknown) => void;
+    api.get.mockImplementation(async (path: string) => {
+      if (path.endsWith("/tests")) return [{ id: "case-1", name: "Synthetic case" }];
+      if (path.includes("/tests/runs/")) return [];
+      if (path.endsWith("/versions") && refreshRequested) return new Promise(resolve => { finishGate = resolve; });
+      return originalGet(path);
+    });
+    api.post.mockImplementationOnce(async () => {
+      refreshRequested = true;
+      return { ran: 1, results: [{ id: "run-1", caseId: "case-1", caseName: "Synthetic case", status: "passed" }] };
+    });
+    const { user } = mount(); await ready();
+    await user.click(screen.getByRole("button", { name: "Run tests on this draft" }));
+    await waitFor(() => expect(finishGate).toBeTypeOf("function"));
+    expect(screen.getByRole("button", { name: "Publish draft v2" }).hasAttribute("disabled")).toBe(true);
+    await act(async () => finishGate({ role, versions: [detail(versions[0], testRun(versions[0], "passed", []), null), versions[1]] }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Publish draft v2" }).hasAttribute("disabled")).toBe(false));
+    expect(screen.getAllByText("Not completed", { exact: true })).toHaveLength(6);
+  });
+
+  it("shows only new persisted progress while the batch is pending and aborts on unmount", async () => {
+    const originalGet = api.get.getMockImplementation()!;
+    let historyReads = 0;
+    api.get.mockImplementation(async (path: string) => {
+      if (path.endsWith("/tests")) return [{ id: "case-1", name: "Synthetic case" }];
+      if (path.includes("/tests/runs/")) return ++historyReads === 1
+        ? [{ id: "old-pass", configId: "draft-2", status: "passed" }]
+        : [{ id: "new-failure", configId: "draft-2", status: "failed", failureCode: "comparison", diff: "Persisted comparison diff." }];
+      return originalGet(path);
+    });
+    let finish!: (value: unknown) => void;
+    api.post.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const { user, unmount } = mount(); await ready();
+    await user.click(screen.getByRole("button", { name: "Run tests on this draft" }));
+    await screen.findByText("Persisted comparison diff.");
+    expect(screen.getByRole("progressbar").getAttribute("value")).toBe("1");
+    expect(screen.getByRole("button", { name: "Publish draft v2" }).hasAttribute("disabled")).toBe(true);
+    const signal = api.post.mock.calls[0][2].signal as AbortSignal;
+    const invalidate = vi.spyOn(clients[0], "invalidateQueries");
+    unmount(); expect(signal.aborted).toBe(true);
+    await act(async () => finish({ ran: 1, results: [] }));
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("runs the selected draft, shows per-case progress/diffs, and uses the refreshed server gate", async () => {
+    const originalGet = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (path: string) => {
+      if (path.endsWith("/tests")) return [{ id: "case-1", name: "Synthetic case", workspaceId: "workspace-1" }];
+      if (path.includes("/tests/runs/")) return [];
+      return originalGet(path);
+    });
+    let finish!: (value: unknown) => void;
+    api.post.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const { user } = mount(); await ready();
+    await user.click(screen.getByRole("button", { name: "Run tests on this draft" }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/workspaces/workspace-1/tests/run",
+      { configId: "draft-2", caseIds: ["case-1"] }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+    expect(screen.getByRole("progressbar", { name: "Draft test progress" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish draft v2" }).hasAttribute("disabled")).toBe(true);
+    versions[0] = detail(versions[0], testRun(versions[0], "failed", []), "Latest run for test case case-1 did not pass.");
+    await act(async () => finish({ ran: 1, results: [{ id: "run-1", caseId: "case-1", caseName: "Synthetic case", status: "failed",
+      failureCode: "comparison", diff: "Missing expected problem (mustHaveProblems #1).", durationMilliseconds: 10 }] }));
+    await screen.findByText("Missing expected problem (mustHaveProblems #1).");
+    await screen.findByText("Publishing blocked: Latest run for test case case-1 did not pass.");
+    expect(screen.getByRole("button", { name: "Publish draft v2" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("does not infer publication permission from a successful run response", async () => {
+    const originalGet = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (path: string) => path.endsWith("/tests") ? [{ id: "case-1", name: "Synthetic case" }]
+      : path.includes("/tests/runs/") ? [] : originalGet(path));
+    api.post.mockResolvedValueOnce({ ran: 1, results: [{ id: "run-1", caseId: "case-1", caseName: "Synthetic case", status: "passed" }] });
+    const { user } = mount(); await ready();
+    await user.click(screen.getByRole("button", { name: "Run tests on this draft" }));
+    await screen.findByText("Synthetic case");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run tests on this draft" }).hasAttribute("disabled")).toBe(false));
+    expect(screen.getByRole("button", { name: "Publish draft v2" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Publishing blocked: no test run")).toBeTruthy();
+  });
+
+  it("rejects an over-cap suite instead of silently selecting or running a subset", async () => {
+    const originalGet = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (path: string) => path.endsWith("/tests")
+      ? Array.from({ length: 11 }, (_, index) => ({ id: `case-${index}`, name: "Synthetic case" })) : originalGet(path));
+    const { user } = mount(); await ready();
+    await user.click(screen.getByRole("button", { name: "Run tests on this draft" }));
+    await screen.findByText(/Run at most 10 cases per request/);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it("never completes a step by opening its settings or invents a test run", async () => {
     const { user } = mount(); await ready();
     for (const step of ["Read case", "Plan", "Retrieve", "Draft", "Verify", "Reconcile"]) await user.click(screen.getByText(step, { exact: true }));

@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Verified workflow configuration",
+  "type": "object",
+  "required": [
+    "prompts",
+    "retrieval",
+    "chunking",
+    "safety"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "prompts": {
+      "type": "object",
+      "required": [
+        "plan",
+        "answer",
+        "rewrite"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "plan": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000,
+          "x-requiredPlaceholders": [
+            "case",
+            "n"
+          ]
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000,
+          "x-requiredPlaceholders": [
+            "problem",
+            "patient",
+            "k",
+            "context"
+          ]
+        },
+        "rewrite": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000,
+          "x-requiredPlaceholders": [
+            "q"
+          ]
+        }
+      }
+    },
+    "retrieval": {
+      "type": "object",
+      "required": [
+        "minRerank",
+        "topK",
+        "candidates",
+        "queriesPerProblem",
+        "maxChunks"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "minRerank": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.3
+        },
+        "topK": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 8
+        },
+        "candidates": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 100,
+          "default": 30
+        },
+        "queriesPerProblem": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 2
+        },
+        "maxChunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 8
+        },
+        "relevanceThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "relevanceOverlapThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "hydeEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Generate one optional hypothetical-answer query (HyDE) before retrieval. The explicit question and deterministic synonym expansion are always used."
+        }
+      }
+    },
+    "chunking": {
+      "type": "object",
+      "required": [
+        "maxTokens",
+        "hybrid"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "maxTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "default": 400
+        },
+        "hybrid": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "verifierLocked",
+        "minQuoteMatch"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "verifierLocked": {
+          "type": "boolean",
+          "const": true,
+          "default": true
+        },
+        "minQuoteMatch": {
+          "type": "number",
+          "minimum": 0.88,
+          "maximum": 1,
+          "default": 0.88
+        }
+      }
+    }
+  }
+}

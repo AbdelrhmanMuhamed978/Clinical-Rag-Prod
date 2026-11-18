@@ -1,0 +1,435 @@
+{
+  "schemaVersion": "a11y-audit/1.0",
+  "generatedAtUtc": "2026-11-16T09:54:00.639744+00:00",
+  "axe": "axe-core 4.14.0",
+  "snapshots": "C:\\Users\\abdom\\AppData\\Local\\Temp\\clinical-rag-a11y",
+  "viewports": [
+    {
+      "width": 320,
+      "height": 640
+    },
+    {
+      "width": 375,
+      "height": 812
+    },
+    {
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "failed": false,
+  "results": [
+    {
+      "page": "playground",
+      "width": 320,
+      "height": 640,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 320,
+      "bodyScrollWidth": 320,
+      "innerWidth": 320,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "playground",
+      "width": 375,
+      "height": 812,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 375,
+      "bodyScrollWidth": 375,
+      "innerWidth": 375,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "playground",
+      "width": 768,
+      "height": 1024,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 768,
+      "bodyScrollWidth": 768,
+      "innerWidth": 768,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "playground",
+      "width": 1440,
+      "height": 900,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 1440,
+      "bodyScrollWidth": 1440,
+      "innerWidth": 1440,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "documents",
+      "width": 320,
+      "height": 640,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 320,
+      "bodyScrollWidth": 320,
+      "innerWidth": 320,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "documents",
+      "width": 375,
+      "height": 812,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 375,
+      "bodyScrollWidth": 375,
+      "innerWidth": 375,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "documents",
+      "width": 768,
+      "height": 1024,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 768,
+      "bodyScrollWidth": 768,
+      "innerWidth": 768,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "documents",
+      "width": 1440,
+      "height": 900,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 1440,
+      "bodyScrollWidth": 1440,
+      "innerWidth": 1440,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "chunk-review",
+      "width": 320,
+      "height": 640,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 320,
+      "bodyScrollWidth": 320,
+      "innerWidth": 320,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "chunk-review",
+      "width": 375,
+      "height": 812,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 375,
+      "bodyScrollWidth": 375,
+      "innerWidth": 375,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "chunk-review",
+      "width": 768,
+      "height": 1024,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 768,
+      "bodyScrollWidth": 768,
+      "innerWidth": 768,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "chunk-review",
+      "width": 1440,
+      "height": 900,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 1440,
+      "bodyScrollWidth": 1440,
+      "innerWidth": 1440,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "workflow",
+      "width": 320,
+      "height": 640,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 320,
+      "bodyScrollWidth": 320,
+      "innerWidth": 320,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "workflow",
+      "width": 375,
+      "height": 812,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 375,
+      "bodyScrollWidth": 375,
+      "innerWidth": 375,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "workflow",
+      "width": 768,
+      "height": 1024,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 768,
+      "bodyScrollWidth": 768,
+      "innerWidth": 768,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "workflow",
+      "width": 1440,
+      "height": 900,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 1440,
+      "bodyScrollWidth": 1440,
+      "innerWidth": 1440,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "rules",
+      "width": 320,
+      "height": 640,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 320,
+      "bodyScrollWidth": 320,
+      "innerWidth": 320,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "rules",
+      "width": 375,
+      "height": 812,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 375,
+      "bodyScrollWidth": 375,
+      "innerWidth": 375,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "rules",
+      "width": 768,
+      "height": 1024,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 768,
+      "bodyScrollWidth": 768,
+      "innerWidth": 768,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "rules",
+      "width": 1440,
+      "height": 900,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 1440,
+      "bodyScrollWidth": 1440,
+      "innerWidth": 1440,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "tests",
+      "width": 320,
+      "height": 640,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 320,
+      "bodyScrollWidth": 320,
+      "innerWidth": 320,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "tests",
+      "width": 375,
+      "height": 812,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 375,
+      "bodyScrollWidth": 375,
+      "innerWidth": 375,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "tests",
+      "width": 768,
+      "height": 1024,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 768,
+      "bodyScrollWidth": 768,
+      "innerWidth": 768,
+      "horizontalOverflow": false
+    },
+    {
+      "page": "tests",
+      "width": 1440,
+      "height": 900,
+      "counts": {
+        "critical": 0,
+        "serious": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "violations": [],
+      "incomplete": 1,
+      "scrollWidth": 1440,
+      "bodyScrollWidth": 1440,
+      "innerWidth": 1440,
+      "horizontalOverflow": false
+    }
+  ]
+}

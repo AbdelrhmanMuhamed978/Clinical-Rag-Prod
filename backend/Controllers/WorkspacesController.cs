@@ -92,6 +92,21 @@ public class WorkspacesController : ControllerBase
         return workspace == null ? NotFound() : Ok(workspace);
     }
 
+    [HttpPatch("{workspaceId}/guideline-policy")]
+    [WorkspaceAuthorize(WorkspaceRole.Owner)]
+    public async Task<IActionResult> UpdateGuidelinePolicy(Guid workspaceId, [FromBody] GuidelinePolicyDto dto)
+    {
+        var workspace = await AuthorizedWorkspace(workspaceId, owner: true);
+        if (workspace == null) return NotFound();
+        workspace.AllowSupersededGuidelines = dto.AllowSupersededGuidelines;
+        Touch(workspace);
+        Audit(workspaceId, await _currentUser.GetUserIdAsync(), "guideline_policy_updated",
+            new { allowSupersededGuidelines = workspace.AllowSupersededGuidelines });
+        try { await _db.SaveChangesAsync(HttpContext.RequestAborted); }
+        catch (DbUpdateConcurrencyException) { return Changed(); }
+        return Ok(new { workspace.AllowSupersededGuidelines });
+    }
+
     [HttpGet("{workspaceId}/invitations")]
     [WorkspaceAuthorize(WorkspaceRole.Owner)]
     public async Task<IActionResult> Invitations(Guid workspaceId) => Ok(await _db.WorkspaceInvitations.AsNoTracking()
@@ -186,6 +201,7 @@ public class WorkspacesController : ControllerBase
         if (documents.Any(DocumentLifecycle.IsBusy)) return Conflict(new { error = "A document is being processed. Wait for processing to finish before deleting this workspace." });
         var ids = documents.Select(d => d.Id).ToList();
         _db.Chunks.RemoveRange(await _db.Chunks.Where(c => c.WorkspaceId == workspaceId).ToListAsync());
+        _db.ChunkJobs.RemoveRange(await _db.ChunkJobs.Where(j => j.WorkspaceId == workspaceId).ToListAsync());
         _db.ChunkerGuidances.RemoveRange(await _db.ChunkerGuidances.Where(g => ids.Contains(g.DocumentId)).ToListAsync());
         _db.Documents.RemoveRange(documents);
         var queued = StoredDocumentFiles.Queue(_db, documents.Select(d => d.StoragePath));
@@ -235,3 +251,4 @@ public record UpdateMemberRoleDto(
 public record InviteMemberDto([Required, EmailAddress, StringLength(256)] string Email,
     [Required, RegularExpression("^(viewer|editor|reviewer|owner)$")] string Role = "viewer");
 public record RenameWorkspaceDto(string Name, string? ExpectedName = null);
+public record GuidelinePolicyDto(bool AllowSupersededGuidelines);

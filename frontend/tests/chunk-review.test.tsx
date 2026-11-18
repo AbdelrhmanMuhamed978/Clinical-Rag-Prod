@@ -4,8 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChunkReviewPage from "@/app/(app)/w/[workspaceId]/documents/[docId]/chunks/page";
 import { ApiError } from "@/lib/api";
-import type { Chunk, Document, DocumentChunkCounts, RuleAccess } from "@/lib/types";
+import type { Chunk, ChunkJob, Document, DocumentChunkCounts, RuleAccess } from "@/lib/types";
 import { deferred } from "./analysis-fixtures";
+import { seriousViolations } from "./axe";
+import { tabTo } from "./keyboard";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), api: vi.fn(), workspaceId: "workspace-1", docId: "document-1", uid: "chunk-user",
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
@@ -17,6 +19,7 @@ vi.mock("sonner", () => ({ toast: mocks.toast }));
 let record: Document;
 let chunks: Chunk[];
 let access: RuleAccess;
+let activeJob: ChunkJob | null;
 let progress: { totalPages: number; chunkedPages: number; chunkedPageNumbers: number[]; chunkingStatus: string; progressPercent: number };
 const clients: QueryClient[] = [];
 const documentRoot = () => `/api/workspaces/${mocks.workspaceId}/documents/${mocks.docId}`;
@@ -33,6 +36,20 @@ function makeChunk(id: string, changes: Partial<Chunk> = {}): Chunk {
   return { id, workspaceId: mocks.workspaceId, documentId: mocks.docId, page: 1, text: `Exact synthetic source passage ${id}.`,
     status: "pending", confidence: 0.9, verbatim: true, type: "clinical", createdAt: "2026-11-15T00:00:00Z", ...changes };
 }
+function makeJob(changes: Partial<ChunkJob> = {}): ChunkJob {
+  const status = changes.status ?? "running";
+  const active = ["queued", "running", "pausing", "paused", "stopping", "interrupted", "blocked"].includes(status);
+  return { id: "job-1", workspaceId: mocks.workspaceId, documentId: mocks.docId, status,
+    pages: [2, 3], completedPages: [2], failedPages: [], skippedPages: [],
+    batchSize: 2, maxTokens: 400, batchTimeoutSeconds: 300, maxRetries: 1, failureMode: "continue",
+    totalBatches: 1, completedBatches: 1, currentBatchStart: 3, currentBatchEnd: 3,
+    errorCode: null, retryOfJobId: null, createdAt: "2026-11-16T00:00:00Z", startedAt: "2026-11-16T00:00:00Z",
+    completedAt: null, lastHeartbeatAt: "2026-11-16T00:01:00Z",
+    canPause: status === "running", canResume: ["paused", "interrupted", "blocked"].includes(status),
+    canCancel: active, canRetry: ["completed", "partial", "failed", "cancelled"].includes(status),
+    nextPollAfterMs: active ? 2000 : null, serverTime: "2026-11-16T00:01:00Z", ...changes };
+}
+function jobView(job: ChunkJob) { return { ...job }; }
 function counts(): DocumentChunkCounts {
   const count = (status: string) => chunks.filter(chunk => chunk.status === status).length;
   return { total: chunks.length, pending: count("pending"), accepted: count("accepted"), rejected: count("rejected"), embedded: count("embedded"),
@@ -52,7 +69,7 @@ function mount() {
   clients.push(client);
   const tree = () => <QueryClientProvider client={client}><ChunkReviewPage /></QueryClientProvider>;
   const view = render(tree());
-  return { client, user: userEvent.setup(), unmount: view.unmount, rerender: () => view.rerender(tree()) };
+  return { client, user: userEvent.setup(), container: view.container, unmount: view.unmount, rerender: () => view.rerender(tree()) };
 }
 async function ready() { await screen.findByRole("group", { name: "Pages to chunk" }); }
 function pageInputs() { return within(screen.getByRole("group", { name: "Pages to chunk" })); }
@@ -61,18 +78,56 @@ async function pendingView(user: ReturnType<typeof userEvent.setup>) { await use
 
 beforeEach(() => {
   mocks.workspaceId = "workspace-1"; mocks.docId = "document-1"; mocks.uid = "chunk-user";
-  mocks.get.mockReset(); mocks.api.mockReset();
-  record = makeDocument(); chunks = [makeChunk("chunk-1")]; checkpoint([1]);
+  mocks.get.mockReset(); mocks.api.mockReset(); window.localStorage.clear();
+  record = makeDocument(); chunks = [makeChunk("chunk-1")]; checkpoint([1]); activeJob = null;
   access = { userId: "chunk-member", role: "editor", canEdit: true, canReview: false, canDelete: false };
   mocks.get.mockImplementation(async (path: string) => {
     if (path === documentRoot()) return { ...record, chunkCounts: counts() };
     if (path === `/api/workspaces/${mocks.workspaceId}/rules/access`) return { ...access };
     if (path === `${documentRoot()}/chunking-progress`) return { ...progress, chunkedPageNumbers: [...progress.chunkedPageNumbers] };
     if (path === `${documentRoot()}/chunker-guidance`) return { guidance: "keep each recommendation with its strength grade; never split tables" };
+    if (path === `${documentRoot()}/processing-state`) return {
+      documentId: mocks.docId, workspaceId: mocks.workspaceId, status: record.status,
+      processingOperation: record.processingOperation ?? null, failureStage: record.failureStage ?? null,
+      failureReason: record.failureReason ?? null, revision: record.revision, updatedAt: record.updatedAt,
+      pageCount: record.pageCount, chunkedPagesCount: progress.chunkedPages,
+      chunkedPageNumbers: [...progress.chunkedPageNumbers], chunkingStatus: progress.chunkingStatus,
+      chunkCounts: counts(), job: activeJob ? jobView(activeJob) : null, serverTime: new Date().toISOString(),
+    };
+    if (path === `${documentRoot()}/chunk-jobs/active`) return { job: activeJob ? jobView(activeJob) : null };
+    if (path.startsWith(`/api/workspaces/${mocks.workspaceId}/chunk-jobs/`) && activeJob) return jobView(activeJob);
     if (path === `${chunkRoot()}?documentId=${mocks.docId}&includeEmbedded=true`) return chunks.map(chunk => ({ ...chunk }));
     throw new Error(`Unexpected GET ${path}`);
   });
   mocks.api.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === `${documentRoot()}/chunk-jobs`) {
+      const settings = body(init);
+      activeJob = makeJob({ status: "queued", pages: settings.pages, completedPages: [], currentBatchStart: null,
+        currentBatchEnd: null, completedBatches: 0, batchSize: settings.batchSize, batchTimeoutSeconds: settings.batchTimeoutSeconds,
+        maxRetries: settings.maxRetries, failureMode: settings.failureMode });
+      return { jobId: activeJob.id, status: activeJob.status, pollAfterMs: 2000 };
+    }
+    if (path === `/api/workspaces/${mocks.workspaceId}/chunk-jobs/job-1/pause`) {
+      activeJob = { ...activeJob!, status: "pausing", canPause: false };
+      return jobView(activeJob);
+    }
+    if (path === `/api/workspaces/${mocks.workspaceId}/chunk-jobs/job-1/resume`) {
+      activeJob = { ...activeJob!, status: "queued", canResume: false, canPause: false, completedAt: null };
+      return { jobId: activeJob.id, status: activeJob.status, pollAfterMs: 2000 };
+    }
+    if (path === `/api/workspaces/${mocks.workspaceId}/chunk-jobs/job-1/cancel`) {
+      activeJob = { ...activeJob!, status: "cancelled", canPause: false, canCancel: false, canRetry: true,
+        completedAt: "2026-11-16T00:02:00Z", failedPages: [3], currentBatchStart: null, currentBatchEnd: null };
+      return jobView(activeJob);
+    }
+    if (path === `/api/workspaces/${mocks.workspaceId}/chunk-jobs/job-1/retry`) {
+      const scope = body(init).scope;
+      const pages = scope === "remaining" ? [3] : [3];
+      activeJob = makeJob({ id: "job-2", status: "queued", pages, completedPages: [], failedPages: [],
+        currentBatchStart: null, currentBatchEnd: null, completedBatches: 0, canRetry: false, canCancel: true });
+      return { jobId: activeJob.id, status: activeJob.status, pollAfterMs: 2000 };
+    }
+    if (path === `/api/workspaces/${mocks.workspaceId}/chunk-jobs/job-2/retry`) return { jobId: "job-3", status: "queued", pollAfterMs: 2000 };
     if (path === `${documentRoot()}/chunk-portions`) {
       const pages: number[] = body(init).pages;
       chunks.push(...pages.map(page => makeChunk(`new-${page}`, { page })));
@@ -104,6 +159,33 @@ beforeEach(() => {
 afterEach(() => { clients.splice(0).forEach(client => client.clear()); vi.useRealTimers(); });
 
 describe("Chunk Review page selection and completion evidence", () => {
+  it("has no serious or critical structural axe issues", async () => {
+    const view = mount(); await ready();
+    expect(await seriousViolations(view.container, "chunk-review")).toEqual([]);
+  });
+
+  it("switches review tabs and selects pages from the keyboard alone", async () => {
+    const { user } = mount(); await ready();
+    const documentTab = await tabTo(user, element => element.getAttribute("role") === "tab" && element.textContent?.includes("Document Text") === true, "Document Text tab");
+    expect(documentTab.getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{ArrowRight}");
+    const pendingTab = screen.getByRole("tab", { name: /^Pending Chunks/ });
+    await waitFor(() => expect(document.activeElement).toBe(pendingTab));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(pendingTab.getAttribute("aria-selected")).toBe("true"));
+    await user.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(document.activeElement).toBe(documentTab));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(documentTab.getAttribute("aria-selected")).toBe("true"));
+    const page2 = pageInputs().getByRole("checkbox", { name: "Page 2" });
+    const page = await tabTo(user, element => element === page2, "Page 2 checkbox");
+    expect((page as HTMLInputElement).checked).toBe(true);
+    await user.keyboard(" ");
+    expect((page as HTMLInputElement).checked).toBe(false);
+    await user.keyboard(" ");
+    expect((page as HTMLInputElement).checked).toBe(true);
+  }, 15000);
+
   it("prefills last saved guidance without overwriting an edit on refetch", async () => {
     const original = mocks.get.getMockImplementation()!;
     let saved = "Preserve recommendation grades.";
@@ -136,6 +218,36 @@ describe("Chunk Review page selection and completion evidence", () => {
     await screen.findByText(/Reset embeddings for 1 chunks/); await waitFor(() => expect(screen.getByRole("button", { name: "Embed (1)" }).hasAttribute("disabled")).toBe(false));
     expect(mocks.api).toHaveBeenCalledOnce();
   });
+  it("re-parses only after confirmation and clears accepted work on changed pages", async () => {
+    chunks = [makeChunk("page-1", { status: "accepted" }), makeChunk("page-2", { status: "embedded", page: 2 }),
+      makeChunk("page-3", { status: "rejected", page: 3 })];
+    reconcile();
+    mocks.api.mockImplementation(async path => {
+      expect(path).toBe(`${documentRoot()}/reparse`);
+      chunks = chunks.map(chunk => chunk.page === 2 ? chunk : { ...chunk,
+        status: chunk.status === "rejected" ? "rejected" : "pending", reReviewRequired: true,
+        validationError: "Source page text changed after re-parse. Review this chunk against the new source." });
+      reconcile();
+      return { changedPages: 2, chunksMarked: 2, footnoteMarkerCount: 3 };
+    });
+    const view = mount(); await ready();
+    expect(await screen.findByRole("tab", { name: /^Reviewed \(3\)/ })).toBeTruthy();
+    await view.user.click(screen.getByText("Document reset controls"));
+    await view.user.click(screen.getByRole("button", { name: "Re-parse source PDF" }));
+    expect(mocks.api).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog").textContent).toContain("Chunks on pages whose text changed");
+    await view.user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Re-parse source" }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledOnce());
+    expect(mocks.api.mock.calls[0][1]?.method).toBe("POST");
+    expect(mocks.toast.warning).toHaveBeenCalledWith("Source re-parsed. 2 page(s) changed; 2 chunk(s) marked for re-review.");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Embed (0)" }).hasAttribute("disabled")).toBe(true));
+    expect(await screen.findByRole("tab", { name: /^Reviewed \(1\)/ })).toBeTruthy();
+    await pendingView(view.user);
+    expect(await screen.findAllByText("Needs re-review")).toHaveLength(2);
+    expect(screen.getAllByText(/Source changed:/)).toHaveLength(2);
+    expect(screen.getAllByText(/Source page text changed after re-parse/)).toHaveLength(2);
+  });
+
   it("defaults only to unprocessed pages, exposes native labels and does not start processing on load", async () => {
     mount(); await ready();
     const inputs = pageInputs();
@@ -272,15 +384,63 @@ describe("Chunk Review processing ownership and cancellation", () => {
     await act(async () => { pending.resolve({ chunksDeleted: 1, resetPages: [1, 2, 3] }); });
     expect(screen.queryByText(/Deleted 1 chunks/)).toBeNull();
   });
-  it.each(["uploaded", "parsing", "chunking", "embedding"])("polls %s processing and stops all polling when it ends", async stage => {
+  it.each(["uploaded", "parsing", "chunking", "embedding"])("polls %s with the lightweight state endpoint and stops all polling when it ends", async stage => {
     vi.useFakeTimers(); record = makeDocument({ status: stage === "embedding" ? "review" : stage, processingOperation: stage === "uploaded" ? null : stage });
+    const stateGets = () => mocks.get.mock.calls.filter(([path]) => path === `${documentRoot()}/processing-state`).length;
+    const totalGets = () => mocks.get.mock.calls.length;
     mount(); await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    expect(mocks.get).toHaveBeenCalledTimes(5); // Guidance and access load once; only processing evidence polls while idle.
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); }); expect(mocks.get).toHaveBeenCalledTimes(8);
-    record = { ...record, status: "review", processingOperation: null };
+    expect(stateGets()).toBe(1);
+    expect(totalGets()).toBe(6); // Document, chunks, progress, guidance, access and processing state.
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    const calls = mocks.get.mock.calls.length;
-    await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); expect(mocks.get).toHaveBeenCalledTimes(calls);
+    expect(stateGets()).toBe(2);
+    expect(totalGets()).toBe(7); // Unchanged state does not re-download the full chunk list.
+    record = { ...record, status: "review", processingOperation: null };
+    await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+    expect(stateGets()).toBe(3);
+    expect(totalGets()).toBeGreaterThan(7); // The status transition refreshes committed evidence once.
+    const settled = totalGets();
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); expect(totalGets()).toBe(settled);
+  });
+
+  it("stops every polling read when auto-poll is off and refreshes all evidence on Poll now", async () => {
+    vi.useFakeTimers();
+    record = makeDocument({ status: "chunking", processingOperation: "chunking" });
+    const stateGets = () => mocks.get.mock.calls.filter(([path]) => path === `${documentRoot()}/processing-state`).length;
+    const totalGets = () => mocks.get.mock.calls.length;
+    mount(); await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(stateGets()).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Stop polling" }));
+    expect((screen.getByRole("checkbox", { name: /Auto-poll/ }) as HTMLInputElement).checked).toBe(false);
+    const stoppedTotal = totalGets(); const stoppedState = stateGets();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(stateGets()).toBe(stoppedState);
+    expect(totalGets()).toBe(stoppedTotal);
+
+    checkpoint([1, 2]);
+    fireEvent.click(screen.getByRole("button", { name: "Poll now" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(stateGets()).toBe(stoppedState + 1);
+    expect(totalGets()).toBeGreaterThan(stoppedTotal);
+    expect(screen.getByText("2/3 pages (66.7%)")).toBeTruthy();
+  });
+
+  it("persists auto-poll and interval per document in the browser", async () => {
+    vi.useFakeTimers();
+    record = makeDocument({ status: "chunking", processingOperation: "chunking" });
+    const first = mount(); await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    fireEvent.change(screen.getByLabelText("Interval"), { target: { value: "10000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Stop polling" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    const key = "clinical-rag:chunk-review-polling:chunk-user:workspace-1:document-1";
+    expect(JSON.parse(window.localStorage.getItem(key)!)).toEqual({ autoPoll: false, interval: 10000 });
+    first.unmount();
+
+    mount(); await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect((screen.getByRole("checkbox", { name: /Auto-poll/ }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText("Interval") as HTMLSelectElement).value).toBe("10000");
+    const settled = mocks.get.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(mocks.get.mock.calls.length).toBe(settled);
   });
 
   it("blocks every review and embedding control while server processing is active", async () => {
@@ -303,10 +463,10 @@ describe("Chunk Review processing ownership and cancellation", () => {
     disabled(selected()); disabled(screen.getByRole("button", { name: /^Chunk All/ }));
     checkpoint([1, 2]); record.processingOperation = "chunking";
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(mocks.get).toHaveBeenCalledTimes(9); // In-flight work also checks for permission loss.
+    expect(mocks.get.mock.calls.some(([path]) => path === `${documentRoot()}/processing-state`)).toBe(true);
     expect(client.getQueryData(["chunking-progress", mocks.workspaceId, mocks.docId, mocks.uid])).toMatchObject({ chunkedPages: 2 });
-    // The polling request fires exactly at the interval boundary. Flush its
-    // separately scheduled query notification before asserting the rendered UI.
+    // The state poll fires at the interval boundary. Flush the separately
+    // scheduled full-evidence refresh before asserting the rendered UI.
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(screen.getByText("2/3 pages (66.7%)")).toBeTruthy(); expect(mocks.api).toHaveBeenCalledOnce();
     expect(screen.queryByText(/Chunking batch/)).toBeNull();
@@ -443,5 +603,106 @@ describe("Chunk Review read failures and reviewed subsets", () => {
     expect(screen.getByText("Page 2 of 2")).toBeTruthy(); await user.selectOptions(screen.getByLabelText("Page:"), "1");
     expect(screen.getAllByRole("article")).toHaveLength(5); expect(screen.queryByText("No pending chunks to review.")).toBeNull();
     expect(screen.getByLabelText("Min score:")).toBeTruthy(); expect(screen.getByLabelText("Type:")).toBeTruthy(); expect(screen.getByLabelText("Group by:")).toBeTruthy();
+  });
+});
+
+describe("Chunk Review durable background jobs", () => {
+  const jobPath = (id = "job-1") => `/api/workspaces/${mocks.workspaceId}/chunk-jobs/${id}`;
+  const jobGets = (id = "job-1") => mocks.get.mock.calls.filter(([path]) => path === jobPath(id)).length;
+
+  it("starts a durable job with the chosen settings and lets the operator control polling", async () => {
+    vi.useFakeTimers();
+    const view = mount(); await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    fireEvent.change(screen.getByLabelText("Batch size (1–10)"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText(/Batch timeout/), { target: { value: "120" } });
+    fireEvent.change(screen.getByLabelText(/Max retries/), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("On batch failure"), { target: { value: "stop" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Start job: all remaining \(2\)/ }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+
+    expect(mocks.api).toHaveBeenCalledWith(`${documentRoot()}/chunk-jobs`, expect.objectContaining({ method: "POST" }));
+    expect(body(mocks.api.mock.calls[0][1])).toMatchObject({
+      pages: [2, 3], batchSize: 3, batchTimeoutSeconds: 120, maxRetries: 2, failureMode: "stop",
+    });
+    expect(screen.getByText("Queued")).toBeTruthy();
+    expect(jobGets()).toBe(1); // The start response is confirmed with one explicit read.
+    const stateGets = () => mocks.get.mock.calls.filter(([path]) => path === `${documentRoot()}/processing-state`).length;
+    expect(stateGets()).toBe(2); // Initial page load, then the post-start sync.
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(stateGets()).toBe(3);
+
+    fireEvent.change(screen.getByLabelText("Interval"), { target: { value: "5000" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(stateGets()).toBe(3);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(stateGets()).toBe(4);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop polling" }));
+    expect((screen.getByRole("checkbox", { name: /Auto-poll/ }) as HTMLInputElement).checked).toBe(false);
+    const stoppedAt = stateGets();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(stateGets()).toBe(stoppedAt);
+
+    fireEvent.click(screen.getByRole("button", { name: "Poll now" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(stateGets()).toBe(stoppedAt + 1);
+    expect(screen.getByText(/Last update:/).textContent).not.toContain("not yet");
+
+    view.unmount();
+    expect(mocks.api.mock.calls.some(([path]) => path.endsWith("/cancel"))).toBe(false);
+  });
+
+  it("reattaches to a paused active job after reload and resumes it without starting over", async () => {
+    activeJob = makeJob({ status: "paused", completedPages: [2], completedBatches: 1,
+      currentBatchStart: null, currentBatchEnd: null, canPause: false, canResume: true });
+    const { user } = mount(); await ready();
+    expect(await screen.findByText("Paused")).toBeTruthy();
+    expect(screen.getByText(/Paused · 1\/2 pages/)).toBeTruthy();
+    disabled(screen.getByRole("button", { name: /^Start job: all remaining/ }));
+    expect(screen.queryByText(/No active background job/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Resume job" }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith(`${jobPath()}/resume`, expect.objectContaining({ method: "POST" })));
+    expect(await screen.findByText("Queued")).toBeTruthy();
+    expect(activeJob?.retryOfJobId).toBeNull();
+  });
+
+  it("pauses after the current batch, cancels, and retries only the failed pages", async () => {
+    activeJob = makeJob({ status: "running" });
+    const { user } = mount(); await ready();
+    expect(await screen.findByText("Running")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Stop polling" }));
+
+    await user.click(screen.getByRole("button", { name: /Pause after current batch/ }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith(`${jobPath()}/pause`, expect.objectContaining({ method: "POST" })));
+    expect(await screen.findByText("Pausing after batch")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Cancel job" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel job" }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith(`${jobPath()}/cancel`, expect.objectContaining({ method: "POST" })));
+    expect(await screen.findByText("Cancelled")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Retry failed \(1\)/ }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith(`${jobPath()}/retry`, expect.objectContaining({ method: "POST" })));
+    const retry = mocks.api.mock.calls.find(([path]) => path === `${jobPath()}/retry`)!;
+    expect(body(retry[1])).toEqual({ scope: "failed" });
+    expect(await screen.findByText("Queued")).toBeTruthy();
+    expect(mocks.api.mock.calls.some(([path]) => path.endsWith("/resume"))).toBe(false);
+  });
+
+  it("retries the remaining pages through a new job while keeping the original history", async () => {
+    activeJob = makeJob({ status: "partial", completedPages: [2], failedPages: [],
+      currentBatchStart: null, currentBatchEnd: null, canRetry: true, canPause: false, canCancel: false });
+    const { user } = mount(); await ready();
+    expect(await screen.findByText("Partially completed")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Stop polling" }));
+
+    await user.click(screen.getByRole("button", { name: /Retry remaining \(1\)/ }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith(`${jobPath()}/retry`, expect.objectContaining({ method: "POST" })));
+    const retry = mocks.api.mock.calls.find(([path]) => path === `${jobPath()}/retry`)!;
+    expect(body(retry[1])).toEqual({ scope: "remaining" });
+    expect(await screen.findByText("Queued")).toBeTruthy();
+    expect(mocks.api.mock.calls.some(([path]) => path.endsWith("/job-1/cancel"))).toBe(false);
   });
 });

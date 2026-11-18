@@ -59,7 +59,7 @@ public class ConfigLifecycleControllerTests : IClassFixture<CustomWebApplication
             var draft = body.GetProperty("versions").EnumerateArray()
                 .Single(v => v.GetProperty("id").GetGuid() == seeded.DraftId);
             Assert.Equal(JsonValueKind.Null, draft.GetProperty("latestTestRun").ValueKind);
-            Assert.Equal("no test run", draft.GetProperty("publishBlockingReason").GetString());
+            Assert.Equal("no_cases", draft.GetProperty("publishBlockingCode").GetString());
         }
         finally { TestPrincipal.Current = null; }
     }
@@ -74,7 +74,7 @@ public class ConfigLifecycleControllerTests : IClassFixture<CustomWebApplication
             var response = await _factory.CreateClient().PostAsJsonAsync(
                 $"/api/workspaces/{seeded.WorkspaceId}/config/{seeded.DraftId}/publish", new { });
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-            Assert.Contains("no test run", await response.Content.ReadAsStringAsync());
+            Assert.Contains("no_cases", await response.Content.ReadAsStringAsync());
         }
         finally { TestPrincipal.Current = null; }
     }

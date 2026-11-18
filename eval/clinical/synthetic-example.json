@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0",
+  "labelSource": "synthetic-fixture",
+  "instructionsVersion": "1.0",
+  "syntheticNotice": "SYNTHETIC WORKED EXAMPLE ONLY. These cases were derived by engineering from eval/retrieval-fixture.json to demonstrate the file format. They are not clinician labels, were not reviewed by a clinician, and must never be reported as clinical evidence.",
+  "guidelineCorpus": {
+    "description": "Synthetic exact-term and semantic retrieval fixture. No real guideline is loaded.",
+    "documentNames": [
+      "synthetic-only.pdf"
+    ]
+  },
+  "cases": [
+    {
+      "id": "synthetic-renal-exact",
+      "kind": "question",
+      "input": "cystatin monitoring",
+      "expectedDocuments": [
+        {
+          "fileName": "synthetic-only.pdf",
+          "page": 1,
+          "section": "Renal monitoring: cystatin"
+        }
+      ],
+      "expectedStatements": [
+        "Cystatin monitoring and a kidney function review."
+      ],
+      "forbiddenStatements": [
+        "No kidney function review is ever needed during cystatin monitoring."
+      ],
+      "notes": "Synthetic example only; mirrors the exact-term retrieval fixture."
+    },
+    {
+      "id": "synthetic-coagulation-exact",
+      "kind": "question",
+      "input": "anti-Xa measurement",
+      "expectedDocuments": [
+        {
+          "fileName": "synthetic-only.pdf",
+          "page": 1,
+          "section": "Coagulation: anti-Xa"
+        }
+      ],
+      "expectedStatements": [
+        "Anti-Xa measurement during anticoagulant review."
+      ],
+      "forbiddenStatements": [
+        "Anticoagulant review never requires any measurement."
+      ],
+      "notes": "Synthetic example only; mirrors the exact-term retrieval fixture."
+    },
+    {
+      "id": "synthetic-respiratory-semantic",
+      "kind": "question",
+      "input": "pulmonary follow-up",
+      "expectedDocuments": [
+        {
+          "fileName": "synthetic-only.pdf",
+          "page": 1,
+          "section": "Synthetic semantic source"
+        }
+      ],
+      "expectedStatements": [
+        "Lung surveillance during treatment."
+      ],
+      "forbiddenStatements": [
+        "Lung surveillance can be stopped without review."
+      ],
+      "notes": "Synthetic example only; mirrors the semantic retrieval fixture."
+    }
+  ]
+}

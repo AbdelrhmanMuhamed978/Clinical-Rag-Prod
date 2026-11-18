@@ -1,0 +1,46 @@
+{
+  "blockedReasons": [
+    "--pipeline-url / EVAL_PIPELINE_URL is required (argument or environment variable).",
+    "--backend-url / EVAL_BACKEND_URL is required (argument or environment variable).",
+    "--workspace-id or EVAL_WORKSPACE_ID is required.",
+    "A Firebase token is required via EVAL_FIREBASE_TOKEN or --firebase-token-file.",
+    "EVAL_PIPELINE_KEY is required for the authenticated pipeline service."
+  ],
+  "cases": [],
+  "clinicalEvidence": false,
+  "commands": [
+    "'C:\\Users\\abdom\\AppData\\Local\\Programs\\Python\\Python313\\python.exe' eval/run_clinical_eval.py --clinical-set eval/clinical/synthetic-example.json --allow-synthetic --output-dir eval/results/clinical",
+    "'C:\\Users\\abdom\\AppData\\Local\\Programs\\Python\\Python313\\python.exe' eval/run_eval.py --mode clinical --clinical-set eval/clinical/synthetic-example.json --allow-synthetic --output-dir eval/results/clinical",
+    "# EVAL_FIREBASE_TOKEN and EVAL_PIPELINE_KEY are supplied only through the environment; values are never recorded."
+  ],
+  "configVersion": null,
+  "endpoint": {
+    "backendUrl": null,
+    "pipelineUrl": null,
+    "workspaceId": null
+  },
+  "exitCode": 4,
+  "generatedAtUtc": "2026-11-16T07:46:08.930674+00:00",
+  "metrics": null,
+  "modelEvidence": null,
+  "preflight": {},
+  "ruleCount": null,
+  "schemaVersion": "clinical-eval/1.0",
+  "set": {
+    "caseCount": 3,
+    "clinicalEvidence": false,
+    "clinician": {},
+    "guidelineCorpus": {
+      "description": "Synthetic exact-term and semantic retrieval fixture. No real guideline is loaded.",
+      "documentNames": [
+        "synthetic-only.pdf"
+      ]
+    },
+    "instructionsVersion": "1.0",
+    "labelSource": "synthetic-fixture",
+    "schemaVersion": "1.0",
+    "syntheticNotice": "SYNTHETIC WORKED EXAMPLE ONLY. These cases were derived by engineering from eval/retrieval-fixture.json to demonstrate the file format. They are not clinician labels, were not reviewed by a clinician, and must never be reported as clinical evidence."
+  },
+  "status": "blocked",
+  "thresholdResults": []
+}

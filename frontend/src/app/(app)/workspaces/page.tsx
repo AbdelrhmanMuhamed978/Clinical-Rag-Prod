@@ -1,6 +1,6 @@
 "use client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useRef, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { get, post } from "@/lib/api";
 import { Workspace } from "@/lib/types";
 import { useRouter } from "next/navigation";
@@ -50,6 +50,8 @@ export default function WorkspacesPage() {
             <TiltCard className="cursor-pointer card-3d relative overflow-hidden" disabled={false}>
               <Card
                 className="cursor-pointer card-3d relative overflow-hidden"
+                onMouseMove={(event) => handleMouseMove(event, w.id)}
+                onMouseLeave={handleMouseLeave}
                 onClick={() => router.push(`/w/${w.id}/documents`)}
               >
               {/* Specular highlight */}

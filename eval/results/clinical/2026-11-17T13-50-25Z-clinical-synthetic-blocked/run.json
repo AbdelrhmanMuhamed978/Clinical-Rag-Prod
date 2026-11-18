@@ -1,0 +1,46 @@
+{
+  "blockedReasons": [
+    "--pipeline-url / EVAL_PIPELINE_URL is required (argument or environment variable).",
+    "--backend-url / EVAL_BACKEND_URL is required (argument or environment variable).",
+    "--workspace-id or EVAL_WORKSPACE_ID is required.",
+    "A Firebase token is required via EVAL_FIREBASE_TOKEN or --firebase-token-file.",
+    "EVAL_PIPELINE_KEY is required for the authenticated pipeline service."
+  ],
+  "cases": [],
+  "clinicalEvidence": false,
+  "commands": [
+    "'C:\\Users\\abdom\\AppData\\Local\\Programs\\Python\\Python313\\python.exe' eval/run_clinical_eval.py --clinical-set eval/clinical/real-who-crag-pending.json --allow-synthetic --output-dir eval/results/clinical",
+    "'C:\\Users\\abdom\\AppData\\Local\\Programs\\Python\\Python313\\python.exe' eval/run_eval.py --mode clinical --clinical-set eval/clinical/real-who-crag-pending.json --allow-synthetic --output-dir eval/results/clinical",
+    "# EVAL_FIREBASE_TOKEN and EVAL_PIPELINE_KEY are supplied only through the environment; values are never recorded."
+  ],
+  "configVersion": null,
+  "endpoint": {
+    "backendUrl": null,
+    "pipelineUrl": null,
+    "workspaceId": null
+  },
+  "exitCode": 4,
+  "generatedAtUtc": "2026-11-17T13:50:25.657809+00:00",
+  "metrics": null,
+  "modelEvidence": null,
+  "preflight": {},
+  "ruleCount": null,
+  "schemaVersion": "clinical-eval/1.0",
+  "set": {
+    "caseCount": 1,
+    "clinicalEvidence": false,
+    "clinician": {},
+    "guidelineCorpus": {
+      "description": "WHO advanced HIV disease guideline (locally held, non-committed PDF); clinical labels pending.",
+      "documentNames": [
+        "9789240118164-eng.pdf"
+      ]
+    },
+    "instructionsVersion": "1.0",
+    "labelSource": "synthetic-fixture",
+    "schemaVersion": "1.0",
+    "syntheticNotice": "ENGINEERING SCAFFOLD ONLY. This synthetic case records a real-guideline layout and the labels supplied in the task, but it is not clinician-labelled and must not be reported as clinical evidence. The 'screening unavailable' expectation is intentionally unfilled pending clinician extraction from the source."
+  },
+  "status": "blocked",
+  "thresholdResults": []
+}

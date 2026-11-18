@@ -11,5 +11,7 @@ export default defineConfig({
     clearMocks: true,
     // Bound concurrent DOM environments so full runs do not starve query notifications.
     maxWorkers: 4,
+    // DOM-heavy interaction tests can exceed the 5s default under four workers.
+    testTimeout: 10_000,
   },
 });

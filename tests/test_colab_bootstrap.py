@@ -30,13 +30,13 @@ def test_source_archive_excludes_credentials_data_and_build_directories(tmp_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("private", encoding="utf-8")
     names = {p.relative_to(root).as_posix() for p in source_files(root)}
-    assert "requirements.txt" in names
+    assert "python-backend/requirements.txt" in names
     assert not any("private" in (root / name).read_text() for name in names)
     output = tmp_path / "source.zip"
     build_archive(output, root)
     extracted = tmp_path / "extracted"
     extract_source(output, extracted)
-    assert (extracted / "requirements.txt").read_text() == "source"
+    assert (extracted / "python-backend/requirements.txt").read_text() == "source"
 
 
 def test_archive_builder_never_overwrites_existing_zip(tmp_path):
@@ -84,10 +84,39 @@ def test_real_archive_has_required_evaluator_and_clinical_assets(tmp_path):
     build_archive(output)
     target = tmp_path / "app"
     extract_source(output, target)
+    assert (target / "conftest.py").is_file()
+    assert (target / "python-backend/pipeline.py").is_file()
+    assert (target / "python-backend/pipeline_service/app.py").is_file()
+    assert (target / "python-backend/config/default_prompts.json").is_file()
+    assert (target / "python-backend/query-synonyms.json").is_file()
     assert (target / "eval/retrieval-fixture.json").is_file()
+    assert (target / "eval/run_clinical_eval.py").is_file()
+    assert (target / "eval/clinical/loader.py").is_file()
+    assert (target / "eval/clinical/real-who-crag-pending.json").is_file()
+    assert (target / "eval/baselines/synthetic-retrieval.tolerances.json").is_file()
+    assert (target / "eval/results/synthetic-retrieval-2026-11-16.json").is_file()
+    assert (target / "scripts/loadtest/run_loadtest.py").is_file()
+    assert (target / "scripts/loadtest/k6-load.js").is_file()
     assert (target / "tests/fixtures/clinical-text-vectors.json").is_file()
     assert (target / "colab/bootstrap.py").is_file()
-    assert (target / "requirements.txt").read_bytes() == (ROOT / "requirements.txt").read_bytes()
+    assert (target / "python-backend/requirements.txt").read_bytes() == (ROOT / "python-backend/requirements.txt").read_bytes()
+
+
+def test_real_archive_contains_governance_resources_required_by_offline_tests(tmp_path):
+    output = tmp_path / "clinical-rag.zip"
+    build_archive(output)
+    target = tmp_path / "app"
+    extract_source(output, target)
+    # tests/test_repository_hygiene.py reads the root policy; tests/test_ci_governance.py
+    # executes the gate and inspects the workflow, owners and pull-request template.
+    for name in (
+        ".gitignore",
+        ".github/scripts/check_ci_gate.py",
+        ".github/workflows/ci.yml",
+        ".github/CODEOWNERS",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+    ):
+        assert (target / name).read_bytes() == (ROOT / name).read_bytes()
 
 
 def test_notebook_cells_are_standard_python_and_upload_does_not_install():
@@ -133,3 +162,21 @@ def test_runtime_uses_sentence_transformers_27_reranker_keyword_and_disables_pro
     assert captured["reranker"] == ("BAAI/bge-reranker-large", "cpu", 512, {})
     assert captured["engine"]["disable_log_requests"] is True
     assert runtime.embedding_dimensions == 768
+
+
+def test_larger_model_requires_explicit_flag_and_preserves_default(monkeypatch):
+    from colab.models import ModelRuntime
+    monkeypatch.delenv("COLAB_ENABLE_LARGER_MODEL", raising=False)
+    assert ModelRuntime().model_name == "Qwen/Qwen3-4B-Instruct-2507"
+    monkeypatch.setenv("COLAB_ENABLE_LARGER_MODEL", "1")
+    larger = ModelRuntime()
+    assert larger.model_name == "Qwen/Qwen3-8B-AWQ"
+    assert larger.quantization == "awq"
+    assert larger.embedding_model == "pritamdeka/S-PubMedBert-MS-MARCO"
+
+
+def test_larger_model_flag_refuses_ambiguous_values(monkeypatch):
+    from colab.models import ModelRuntime
+    monkeypatch.setenv("COLAB_ENABLE_LARGER_MODEL", "maybe")
+    with pytest.raises(ValueError):
+        ModelRuntime()

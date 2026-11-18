@@ -43,7 +43,8 @@ public class DocumentsController : ControllerBase
                 ParsedTextLength = d.ParsedText == null ? 0 : d.ParsedText.Length,
                 d.ChunkedPagesCount, d.ChunkingStatus, d.Society, d.Year, d.GuidelineStatus,
                 d.ProcessingOperation, d.FailureStage, d.FailureReason, d.Revision,
-                d.CreatedAt, d.UpdatedAt, d.EmbeddingTotal, d.EmbeddingCompleted, d.EmbeddingBatchSize
+                d.CreatedAt, d.UpdatedAt, d.EmbeddingTotal, d.EmbeddingCompleted, d.EmbeddingBatchSize, d.NeedsOcrPages,
+                d.Title, d.Version, d.EffectiveDate, d.ReviewByDate, d.SourceUrl, d.PermissionNote
             }).ToListAsync();
         var counts = await ReadCountsAsync(workspaceId);
         // Build the DTO after materialization; EF must project only scalar columns,
@@ -52,14 +53,17 @@ public class DocumentsController : ControllerBase
             d.Id, d.WorkspaceId, d.FileName, d.Status, d.PageCount, d.ParsedTextLength, null,
             d.ChunkedPagesCount, d.ChunkingStatus, d.Society, d.Year, d.GuidelineStatus,
             d.ProcessingOperation, d.FailureStage, d.FailureReason, d.Revision,
-            d.CreatedAt, d.UpdatedAt, DocumentChunkCounts.Empty, d.EmbeddingTotal, d.EmbeddingCompleted, d.EmbeddingBatchSize),
+            d.CreatedAt, d.UpdatedAt, DocumentChunkCounts.Empty, d.EmbeddingTotal, d.EmbeddingCompleted, d.EmbeddingBatchSize,
+            DocumentLifecycle.ParseNeedsOcr(d.NeedsOcrPages), d.Title, d.Version, d.EffectiveDate, d.ReviewByDate,
+            d.SourceUrl, d.PermissionNote),
             counts.GetValueOrDefault(d.Id, DocumentChunkCounts.Empty))));
     }
 
     private static DocumentView WithCounts(DocumentView doc, DocumentChunkCounts counts) => doc with
     {
         ChunkCounts = counts,
-        Status = DocumentLifecycle.Status(doc.Status, doc.ProcessingOperation, doc.FailureReason, doc.ParsedTextLength, counts)
+        Status = DocumentLifecycle.Status(doc.Status, doc.ProcessingOperation, doc.FailureReason, doc.ParsedTextLength, counts,
+            doc.NeedsOcrPages)
     };
 
     private async Task<Dictionary<Guid, DocumentChunkCounts>> ReadCountsAsync(Guid workspaceId, Guid? documentId = null)
@@ -87,18 +91,28 @@ public class DocumentsController : ControllerBase
     [WorkspaceAuthorize(WorkspaceRole.Editor)]
     [RequestSizeLimit(MaxPdfBytes + 1024 * 1024)]
     public async Task<IActionResult> Upload(Guid workspaceId, [FromForm] IFormFile? file,
-        [FromForm] string? society, [FromForm] int? year, [FromForm] string? guidelineStatus)
+        [FromForm] string? society, [FromForm] string? title, [FromForm] string? version,
+        [FromForm] int? year, [FromForm] string? guidelineStatus,
+        [FromForm] DateTime? effectiveDate, [FromForm] DateTime? reviewByDate,
+        [FromForm] string? sourceUrl, [FromForm] string? permissionNote)
     {
         var fileName = Path.GetFileName(file?.FileName ?? "");
         society = society?.Trim();
+        title = title?.Trim();
+        version = version?.Trim();
         guidelineStatus = guidelineStatus?.Trim().ToLowerInvariant();
+        sourceUrl = sourceUrl?.Trim();
+        permissionNote = permissionNote?.Trim();
         if (file == null || file.Length < 5 || file.Length > MaxPdfBytes
             || fileName.Length > 256 || fileName.Any(char.IsControl)
             || !Path.GetExtension(fileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { error = "Choose a non-empty PDF of at most 50 MB." });
         if (string.IsNullOrWhiteSpace(society) || society.Length > 256 || society.Any(char.IsControl)
-            || year is not (>= 1900 and <= 2100) || guidelineStatus is not ("final" or "draft"))
-            return BadRequest(new { error = "Enter a publishing society (1–256 characters), a year from 1900 to 2100, and FINAL or DRAFT status." });
+            || year is not (>= 1900 and <= 2100) || guidelineStatus is not ("final" or "draft" or "superseded")
+            || (title?.Length ?? 0) > 512 || (version?.Length ?? 0) > 64
+            || (permissionNote?.Length ?? 0) > 1024
+            || (!string.IsNullOrEmpty(sourceUrl) && !ClinicalText.HttpSourceUrl(sourceUrl)))
+            return BadRequest(new { error = "Enter a publishing society, year 1900–2100, FINAL/DRAFT/SUPERSEDED status, optional title/version, a valid HTTP(S) source URL, and a bounded permission note." });
 
         using (var source = file.OpenReadStream())
         {
@@ -120,7 +134,12 @@ public class DocumentsController : ControllerBase
             var doc = new Document
             {
                 WorkspaceId = workspaceId, FileName = fileName, StoragePath = filePath, Status = "uploaded",
-                Society = society, Year = year, GuidelineStatus = guidelineStatus,
+                Society = society, Title = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(fileName) : title,
+                Version = string.IsNullOrWhiteSpace(version) ? null : version,
+                Year = year, GuidelineStatus = guidelineStatus,
+                EffectiveDate = effectiveDate, ReviewByDate = reviewByDate,
+                SourceUrl = string.IsNullOrWhiteSpace(sourceUrl) ? null : sourceUrl,
+                PermissionNote = string.IsNullOrWhiteSpace(permissionNote) ? null : permissionNote,
                 UploadedBy = await _currentUser.GetUserIdAsync()
             };
             _db.Documents.Add(doc);
@@ -145,6 +164,7 @@ public class DocumentsController : ControllerBase
         if (DocumentLifecycle.IsBusy(doc)) return Busy();
         var chunks = await _db.Chunks.Where(c => c.DocumentId == id && c.WorkspaceId == workspaceId).ToListAsync();
         _db.Chunks.RemoveRange(chunks);
+        _db.ChunkJobs.RemoveRange(await _db.ChunkJobs.Where(j => j.DocumentId == id && j.WorkspaceId == workspaceId).ToListAsync());
         _db.ChunkerGuidances.RemoveRange(await _db.ChunkerGuidances.Where(g => g.DocumentId == id).ToListAsync());
         _db.Documents.Remove(doc);
         var queued = StoredDocumentFiles.Queue(_db, [doc.StoragePath]);
@@ -229,8 +249,44 @@ public class DocumentsController : ControllerBase
             "not_found" => NotFound(),
             "conflict" => Conflict(new { error = result.Error }),
             "failed" => StatusCode(result.StatusCode, new { error = result.Error, dependency = result.StatusCode == 503 ? "colab" : null }),
-            _ => Ok(new { parsedTextLength = result.ParsedTextLength, pageCount = result.PageCount, chunksCreated = 0,
-                note = "Parsed. Choose pages and review chunks before embedding." })
+            _ => Ok(new { parsedTextLength = result.ParsedTextLength, pageCount = result.PageCount,
+                needsOcrPages = result.NeedsOcrPages ?? [], chunksCreated = 0,
+                note = (result.NeedsOcrPages?.Count ?? 0) == 0
+                    ? "Parsed. Choose pages and review chunks before embedding."
+                    : "Parsed. Image-only pages were detected and are marked needs OCR; they were not indexed." })
+        };
+    }
+
+    [HttpPost("{id}/reparse")]
+    [WorkspaceAuthorize(WorkspaceRole.Editor)]
+    public async Task<IActionResult> Reparse(Guid workspaceId, Guid id)
+    {
+        var result = await _parser.ReparseAsync(workspaceId, id, HttpContext.RequestAborted);
+        if (result.RetryAfterSeconds.HasValue) Response.Headers.RetryAfter = result.RetryAfterSeconds.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var markerCount = 0;
+        if (!string.IsNullOrWhiteSpace(result.FootnoteMarkersJson))
+        {
+            try { markerCount = JsonSerializer.Deserialize<JsonElement>(result.FootnoteMarkersJson).GetArrayLength(); }
+            catch (JsonException) { markerCount = 0; }
+        }
+        return result.Outcome switch
+        {
+            "not_found" => NotFound(),
+            "bad_request" => BadRequest(new { error = result.Error }),
+            "conflict" => Conflict(new { error = result.Error }),
+            "failed" => StatusCode(result.StatusCode, new { error = result.Error, dependency = result.StatusCode == 503 ? "colab" : null }),
+            _ => Ok(new
+            {
+                parsedTextLength = result.ParsedTextLength,
+                pageCount = result.PageCount,
+                needsOcrPages = result.NeedsOcrPages ?? [],
+                changedPages = result.ChangedPages,
+                chunksMarked = result.ChunksMarked,
+                footnoteMarkerCount = markerCount,
+                note = result.ChunksMarked == 0
+                    ? "Source re-parsed. No chunk text changed; existing review is unchanged."
+                    : "Source re-parsed. Chunks on changed pages are marked for re-review and their old vectors were cleared."
+            })
         };
     }
 
@@ -240,20 +296,80 @@ public class DocumentsController : ControllerBase
         var doc = await _db.Documents.FirstOrDefaultAsync(d => d.Id == id && d.WorkspaceId == workspaceId);
         if (doc == null) return NotFound();
 
-        var chunked = string.IsNullOrWhiteSpace(doc.ChunkedPageNumbers)
-            ? new List<int>()
-            : JsonSerializer.Deserialize<List<int>>(doc.ChunkedPageNumbers) ?? new List<int>();
-
+        var chunked = ChunkJobSupport.ReadPages(doc.ChunkedPageNumbers);
         var total = doc.PageCount ?? 0;
-        var pct = total > 0 ? (double)chunked.Count / total * 100 : 0;
+        var pct = total > 0 ? (double)chunked.Length / total * 100 : 0;
 
         return Ok(new
         {
             totalPages = total,
-            chunkedPages = chunked.Count,
+            chunkedPages = chunked.Length,
             chunkedPageNumbers = chunked,
             chunkingStatus = doc.ChunkingStatus,
             progressPercent = Math.Round(pct, 1)
+        });
+    }
+
+    /// <summary>
+    /// Lightweight polling projection for Chunk Review. It returns only scalar
+    /// status, page/count evidence and the latest job view; no parsed text,
+    /// chunk text or vectors.
+    /// </summary>
+    [HttpGet("{id}/processing-state")]
+    public async Task<IActionResult> ProcessingState(Guid workspaceId, Guid id)
+    {
+        var doc = await _db.Documents.AsNoTracking()
+            .Where(d => d.Id == id && d.WorkspaceId == workspaceId)
+            .Select(d => new
+            {
+                d.Id, d.WorkspaceId, d.Status, d.PageCount, d.ChunkedPagesCount, d.ChunkedPageNumbers,
+                d.ChunkingStatus, d.ProcessingOperation, d.FailureStage, d.FailureReason, d.Revision, d.UpdatedAt,
+                d.NeedsOcrPages,
+                ParsedTextLength = d.ParsedText == null ? 0 : d.ParsedText.Length
+            }).FirstOrDefaultAsync();
+        if (doc == null) return NotFound();
+
+        // Counts only: no chunk text, vectors or row materialization per poll.
+        var chunkQuery = _db.Chunks.AsNoTracking()
+            .Where(c => c.WorkspaceId == workspaceId && c.DocumentId == id);
+        var total = await chunkQuery.CountAsync();
+        var pending = await chunkQuery.CountAsync(c => c.Status == "pending");
+        var acceptedOnly = await chunkQuery.CountAsync(c => c.Status == "accepted");
+        var rejected = await chunkQuery.CountAsync(c => c.Status == "rejected");
+        var embeddedTotal = await chunkQuery.CountAsync(c => c.Status == "embedded");
+        var embeddedWithVector = await chunkQuery.CountAsync(c => c.Status == "embedded"
+            && c.Embedding != null && c.Embedding.Length >= sizeof(float)
+            && c.EmbeddingModel != null && c.EmbeddingModel != "");
+        var accepted = acceptedOnly + (embeddedTotal - embeddedWithVector);
+        var other = total - pending - accepted - rejected - embeddedWithVector;
+        var counts = new DocumentChunkCounts(total, pending, accepted, rejected, embeddedWithVector, other);
+
+        var job = await _db.ChunkJobs.AsNoTracking()
+            .Where(j => j.WorkspaceId == workspaceId && j.DocumentId == id)
+            .OrderByDescending(j => j.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        var chunked = ChunkJobSupport.ReadPages(doc.ChunkedPageNumbers);
+        var status = DocumentLifecycle.Status(doc.Status, doc.ProcessingOperation, doc.FailureReason,
+            doc.ParsedTextLength, counts, DocumentLifecycle.ParseNeedsOcr(doc.NeedsOcrPages));
+
+        return Ok(new
+        {
+            documentId = doc.Id,
+            workspaceId = doc.WorkspaceId,
+            status,
+            processingOperation = doc.ProcessingOperation,
+            failureStage = doc.FailureStage,
+            failureReason = doc.FailureReason,
+            revision = doc.Revision,
+            updatedAt = doc.UpdatedAt,
+            pageCount = doc.PageCount,
+            chunkedPagesCount = chunked.Length,
+            chunkedPageNumbers = chunked,
+            chunkingStatus = doc.ChunkingStatus,
+            chunkCounts = counts,
+            job = job == null ? null : ChunkJobSupport.View(job),
+            serverTime = DateTime.UtcNow
         });
     }
 
@@ -313,7 +429,8 @@ public class DocumentsController : ControllerBase
         }
 
         var requestedPages = pagesToChunk.Select(p => p.Page).ToList();
-        var reviewedRanges = await _db.Chunks.Where(c => c.WorkspaceId == workspaceId && c.DocumentId == id && (c.Status == "accepted" || c.Status == "embedded"))
+        var reviewedRanges = await _db.Chunks.Where(c => c.WorkspaceId == workspaceId && c.DocumentId == id
+                && (c.ReReviewRequired || c.Status == "accepted" || c.Status == "embedded"))
             .Select(c => new { Start = c.PageStart ?? c.Page, End = c.PageEnd ?? c.Page }).ToListAsync(cancellationToken);
         if (reviewedRanges.Any(c => requestedPages.Any(p => p >= c.Start && p <= c.End)))
         {
@@ -357,7 +474,7 @@ public class DocumentsController : ControllerBase
                     max_tokens = maxTokens,
                 });
 
-                var jobResult = await _colab.RunChunkJobAsync(chunkBody, cancellationToken);
+                var jobResult = await _colab.RunChunkJobAsync(chunkBody, cancellationToken: cancellationToken);
                 if (!jobResult.HasValue)
                 {
                     // Failed/timed-out jobs never advance page progress.
@@ -426,8 +543,8 @@ public class DocumentsController : ControllerBase
                     foreach (var c in allReturnedChunks)
                     {
                         var pageNum = c.GetProperty("page").GetInt32();
-                        var chunkText = c.TryGetProperty("text", out var ct) && ct.ValueKind == JsonValueKind.String
-                            ? ct.GetString() ?? "" : "";
+                        var chunkText = ChunkMetadata.NormalizeText(c.TryGetProperty("text", out var ct)
+                            && ct.ValueKind == JsonValueKind.String ? ct.GetString() : "");
 
                         JsonElement meta = c.TryGetProperty("metadata", out var m) ? m : default;
                         string section = "";
@@ -473,15 +590,26 @@ public class DocumentsController : ControllerBase
                             }
                         }
 
-                        // Deterministic regex pass on chunk text for section hierarchy, year, strength, certainty.
+                        // Deterministic cleanup for section hierarchy, year, strength, certainty.
+                        section = ChunkMetadata.CleanSection(section);
                         if (string.IsNullOrWhiteSpace(sectionHierarchy))
                             sectionHierarchy = ExtractSectionHierarchy(chunkText);
+                        sectionHierarchy = ChunkMetadata.CleanSection(sectionHierarchy);
                         if (year == null)
                             year = ExtractYear(chunkText, pageNum);
-                        if (strength == null)
-                            strength = ExtractRecommendationStrength(chunkText);
-                        if (certainty == null)
-                            certainty = ExtractCertainty(chunkText);
+                        var providedStrength = strength;
+                        strength = ChunkMetadata.Strength(chunkText, strength);
+                        certainty = ChunkMetadata.Certainty(chunkText, certainty);
+                        if (string.IsNullOrWhiteSpace(providedStrength) || providedStrength == "none")
+                        {
+                            confidence = strength switch
+                            {
+                                "strong" => 0.90,
+                                "conditional" => 0.70,
+                                "weak" => 0.50,
+                                _ => confidence
+                            };
+                        }
 
                         // Per-chunk type / verbatim / validation error from Colab.
                         string type = "clinical";

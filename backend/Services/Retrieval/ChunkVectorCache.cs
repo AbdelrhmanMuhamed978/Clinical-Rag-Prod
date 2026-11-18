@@ -11,6 +11,7 @@ public sealed class ChunkVectorCache : IDisposable
         public readonly object Sync = new();
         public long Generation;
     }
+    private sealed record CacheEntry(long DatabaseGeneration, ChunkSearchIndex Index);
     // Fixed metadata as well as bounded vectors. Never retain a slot for every
     // workspace ever edited. Rare hash collisions serialize cold loads only.
     private readonly Stripe[] _stripes = Enumerable.Range(0, 1024).Select(_ => new Stripe()).ToArray();
@@ -35,32 +36,40 @@ public sealed class ChunkVectorCache : IDisposable
         }
     }
 
-    public async Task<ChunkSearchIndex> GetAsync(Guid workspaceId, Func<CancellationToken, Task<ChunkSearchIndex>> load,
-        CancellationToken cancellationToken = default)
+    // Compatibility overload for local tests/callers that are not serving
+    // retrieval. Production retrieval must pass the durable database generation.
+    public Task<ChunkSearchIndex> GetAsync(Guid workspaceId, Func<CancellationToken, Task<ChunkSearchIndex>> load,
+        CancellationToken cancellationToken = default) =>
+        GetAsync(workspaceId, 0, load, cancellationToken);
+
+    public async Task<ChunkSearchIndex> GetAsync(Guid workspaceId, long databaseGeneration,
+        Func<CancellationToken, Task<ChunkSearchIndex>> load, CancellationToken cancellationToken = default)
     {
         var stripe = _stripes[workspaceId.GetHashCode() & 1023];
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_cache.TryGetValue<ChunkSearchIndex>(workspaceId, out var cached)) return cached!;
+            if (_cache.TryGetValue<CacheEntry>(workspaceId, out var cached) && cached is not null
+                && cached.DatabaseGeneration == databaseGeneration) return cached.Index;
             await stripe.Gate.WaitAsync(cancellationToken);
             try
             {
-                long generation;
+                long processGeneration;
                 lock (stripe.Sync)
                 {
-                    if (_cache.TryGetValue(workspaceId, out cached)) return cached!;
-                    generation = stripe.Generation;
+                    if (_cache.TryGetValue<CacheEntry>(workspaceId, out cached) && cached is not null
+                        && cached.DatabaseGeneration == databaseGeneration) return cached.Index;
+                    processGeneration = stripe.Generation;
                 }
                 var index = await load(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (index.EstimatedBytes > _sizeLimit) throw new InvalidOperationException("Workspace search index exceeds the configured cache memory budget.");
                 lock (stripe.Sync)
                 {
-                    if (generation != stripe.Generation) continue; // A commit raced the load; do not publish stale data.
+                    if (processGeneration != stripe.Generation) continue; // A commit raced the load; do not publish stale data.
                     // Publication and invalidation share this short critical
                     // section, including the window between checking and Set.
-                    _cache.Set(workspaceId, index, new MemoryCacheEntryOptions
+                    _cache.Set(workspaceId, new CacheEntry(databaseGeneration, index), new MemoryCacheEntryOptions
                     { Size = index.EstimatedBytes, AbsoluteExpirationRelativeToNow = _absoluteExpiration });
                     return index;
                 }

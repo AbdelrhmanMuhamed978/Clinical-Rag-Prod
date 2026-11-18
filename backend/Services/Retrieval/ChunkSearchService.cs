@@ -6,35 +6,69 @@ namespace ClinicalRag.Api.Services;
 
 public sealed class ChunkSearchService(AppDbContext db, ChunkVectorCache cache)
 {
-    public async Task<IReadOnlyList<Guid>> CandidatesAsync(Guid workspaceId, string query, EmbeddingBatch embedding,
+    public Task<IReadOnlyList<Guid>> CandidatesAsync(Guid workspaceId, string query, EmbeddingBatch embedding,
         int candidates, CancellationToken cancellationToken = default)
+        => CandidatesAsync(workspaceId, [query], embedding, candidates, cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> CandidatesAsync(Guid workspaceId, IReadOnlyList<string> queries,
+        EmbeddingBatch embedding, int candidates, CancellationToken cancellationToken = default)
     {
-        var index = await cache.GetAsync(workspaceId, async token =>
+        if (queries.Count == 0) return [];
+        if (embedding.Vectors.Count != queries.Count)
+            throw new InvalidDataException("Query-expansion embeddings do not match the query count.");
+        // One primary-key lookup per request makes the process-local cache a
+        // coherent view of this database. SQL Server advances the generation in
+        // the Chunks trigger; test providers mirror it in AppDbContext.SaveChanges.
+        var databaseGeneration = await db.Workspaces.AsNoTracking()
+            .Where(workspace => workspace.Id == workspaceId)
+            .Select(workspace => workspace.SearchGeneration)
+            .SingleOrDefaultAsync(cancellationToken);
+        var index = await cache.GetAsync(workspaceId, databaseGeneration, async token =>
         {
             var rows = await db.Chunks.AsNoTracking().Where(c => c.WorkspaceId == workspaceId
+                    && !c.ReReviewRequired
                     && (c.Status == "accepted" || c.Status == "embedded") && c.Embedding != null)
-                .Select(c => new ChunkVectorRecord(c.Id, c.Text, c.Section, c.EmbeddingModel, c.Embedding!)).ToListAsync(token);
+                .Select(c => new ChunkVectorRecord(c.Id, c.Text, c.Section, c.EmbeddingModel, c.Embedding!,
+                    c.Metadata)).ToListAsync(token);
             var fullText = db.Database.IsSqlServer() && await FullTextAvailableAsync(token);
             return new ChunkSearchIndex(rows, fullText);
         }, cancellationToken);
         index.RequireCompatible(embedding);
         var limit = Math.Clamp(candidates, 1, RetrievalLimits.MaxRerankPassages);
         var legLimit = Math.Max(60, limit * 2);
-        var dense = index.Dense(EmbeddingVectors.ReadNormalized(embedding.Vectors[0]), legLimit, cancellationToken);
-        IReadOnlyList<ChunkSearchHit> lexical;
-        if (index.FullTextAvailable)
+        var legs = new List<IReadOnlyList<ChunkSearchHit>>(queries.Count * 2);
+        for (var queryIndex = 0; queryIndex < queries.Count; queryIndex++)
         {
-            try { lexical = await FullTextAsync(workspaceId, query, embedding.Model, index, legLimit, cancellationToken); }
-            catch (SqlException exception) when (exception.Number is 7601 or 7603 or 7609 or 7635 or 30053)
+            var query = queries[queryIndex];
+            if (string.IsNullOrWhiteSpace(query)) continue;
+            legs.Add(index.Dense(EmbeddingVectors.ReadNormalized(embedding.Vectors[queryIndex]), legLimit,
+                cancellationToken));
+            IReadOnlyList<ChunkSearchHit> lexical;
+            if (index.FullTextAvailable)
             {
-                // An index/catalog removed after capability detection is an expected
-                // fallback. Network/database errors are NOT silently swallowed.
-                cache.Invalidate(workspaceId);
-                lexical = index.Lexical.Search(query, legLimit, cancellationToken);
+                try { lexical = await FullTextAsync(workspaceId, query, embedding.Model, index, legLimit, cancellationToken); }
+                catch (SqlException exception) when (exception.Number is 7601 or 7603 or 7609 or 7635 or 30053)
+                {
+                    // An index/catalog removed after capability detection is an expected
+                    // fallback. Network/database errors are NOT silently swallowed.
+                    cache.Invalidate(workspaceId);
+                    lexical = index.Lexical.Search(query, legLimit, cancellationToken);
+                }
             }
+            else lexical = index.Lexical.Search(query, legLimit, cancellationToken);
+            legs.Add(lexical);
         }
-        else lexical = index.Lexical.Search(query, legLimit, cancellationToken);
-        return ReciprocalRankFusion.Fuse(dense, lexical, limit).Select(hit => hit.Id).ToArray();
+        if (legs.Count == 0) return [];
+        var intent = QueryExpansion.IntentOf(queries[0]);
+        // Fuse a wider set than the rerank batch, then apply the deterministic
+        // section boost before truncation so a definition/summary chunk just
+        // outside the raw top-N can still reach the cross-encoder.
+        var fused = ReciprocalRankFusion.Fuse(legs, Math.Min(limit * 2, 60));
+        return fused
+            .Select(hit => new ChunkSearchHit(hit.Id, hit.Score * QueryExpansion.SectionBoost(
+                index.KindOf(hit.Id), index.SectionOf(hit.Id), intent)))
+            .OrderByDescending(hit => hit.Score).ThenBy(hit => hit.Id)
+            .Take(limit).Select(hit => hit.Id).ToArray();
     }
 
     private async Task<bool> FullTextAvailableAsync(CancellationToken cancellationToken)

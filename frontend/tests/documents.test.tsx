@@ -7,6 +7,8 @@ import { ApiError } from "@/lib/api";
 import { canRetryParse, DOCUMENT_STATUSES, documentsQueryKey } from "@/lib/documents";
 import type { Document } from "@/lib/types";
 import { deferred } from "./analysis-fixtures";
+import { seriousViolations } from "./axe";
+import { control, tabTo } from "./keyboard";
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), uid: "documents-user", workspaceId: "workspace-1", toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 vi.mock("@/lib/api", () => ({ api: mocks.api, ApiError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
@@ -60,6 +62,24 @@ beforeEach(() => {
 afterEach(() => { clients.splice(0).forEach(client => client.clear()); vi.useRealTimers(); });
 
 describe("truthful document processing", () => {
+  it("has no serious or critical structural axe issues", async () => {
+    documents = [document("indexed", { chunkCounts: { total: 2, pending: 0, accepted: 0, rejected: 0, embedded: 2, other: 0 } })];
+    const view = mount(); await screen.findByRole("heading", { name: "indexed.pdf" });
+    expect(await seriousViolations(view.container, "documents")).toEqual([]);
+  });
+
+  it("opens and dismisses the upload dialog from the keyboard alone", async () => {
+    const { user } = mount(); await screen.findByText("No documents yet.");
+    const trigger = await tabTo(user, control("Upload guideline", "BUTTON"), "Upload guideline");
+    await user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "Upload guideline" });
+    expect(dialog.hasAttribute("open")).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBeNull();
+    await tabTo(user, element => element.tagName === "BUTTON" && !!element.textContent?.startsWith("Cancel"), "Cancel upload");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("renders all seven distinct status classes, metadata and counts without claiming automatic chunking", async () => {
     documents = Object.keys(DOCUMENT_STATUSES).map(status => document(status, status === "indexed"
       ? { chunkCounts: { total: 3, pending: 0, accepted: 0, rejected: 1, embedded: 2, other: 0 } }
@@ -79,6 +99,16 @@ describe("truthful document processing", () => {
     expect(screen.queryByText(/parsed and chunked automatically/i)).toBeNull();
     expect(screen.getAllByRole("button", { name: "Retry Parse" })).toHaveLength(1);
     expect(within(card("uploaded.pdf")).queryByRole("button", { name: /parse/i })).toBeNull();
+  });
+
+  it("surfaces image-only pages as needs OCR instead of implying full text extraction", async () => {
+    documents = [document("parsed", { needsOcrPages: [7, 9] })];
+    mount();
+    await screen.findByRole("heading", { name: "parsed.pdf" });
+    const notice = within(card("parsed.pdf")).getByRole("status");
+    expect(notice.textContent).toContain("Needs OCR: pages 7, 9");
+    expect(notice.textContent).toContain("not indexed");
+    expect(notice.textContent).toContain("OCR is not included");
   });
 
   it.each(["uploaded", "parsing", "chunking", "embedding"])("polls %s work and stops when server processing ends", async status => {

@@ -1,19 +1,19 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useMemo, useId } from "react";
+import { useState, useEffect, useMemo, useId, useCallback, useRef } from "react";
 import { api, get } from "@/lib/api";
-import type { Chunk, Document, RuleAccess } from "@/lib/types";
+import type { Chunk, ChunkJob, ChunkProcessingState, Document, RuleAccess } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Loader2, CheckCircle, X, FileText, Brain, Zap, ShieldCheck, Play, RefreshCw, Clock, Wand2, Filter, LayoutList, Trash2 } from "lucide-react";
+import { Loader2, CheckCircle, X, FileText, Brain, Zap, ShieldCheck, Play, RefreshCw, Clock, Wand2, Filter, LayoutList, Trash2, Pause, RotateCcw } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { documentActionError, documentIsBusy, documentPollInterval, documentStatus, DOCUMENT_POLL_MILLISECONDS } from "@/lib/documents";
+import { documentActionError, documentIsBusy, documentStatus } from "@/lib/documents";
 import { createRequestScope } from "@/lib/request-scope";
 import { useAuth } from "@/providers/AuthProvider";
 import { ConfirmDialog, type Confirmation } from "@/components/rules/confirm-action";
@@ -27,7 +27,7 @@ interface ChunkingProgress {
 }
 
 type ReviewStatus = "pending" | "accepted" | "rejected";
-type Action = "review" | "bulk-accept" | "reject-front-matter" | "embedding" | "chunking" | "reset-pages" | "reset-embeddings";
+type Action = "review" | "bulk-accept" | "reject-front-matter" | "embedding" | "chunking" | "job-control" | "reparse" | "reset-pages" | "reset-embeddings";
 type Request = ReturnType<ReturnType<typeof createRequestScope>["start"]>;
 type Feedback = { message: string; warning?: boolean };
 
@@ -78,6 +78,96 @@ const STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-50 border-amber-100 text-amber-700",
   embedded: "bg-purple-50 border-purple-100 text-purple-700",
 };
+
+const JOB_ACTIVE_STATUSES = ["queued", "running", "pausing", "paused", "stopping", "interrupted", "blocked"] as const;
+const JOB_TERMINAL_STATUSES = ["completed", "partial", "failed", "cancelled"] as const;
+function isActiveJob(job: ChunkJob | null): boolean {
+  return !!job && (JOB_ACTIVE_STATUSES as readonly string[]).includes(job.status);
+}
+function jobStatusLabel(status: ChunkJob["status"]): string {
+  return status === "queued" ? "Queued"
+    : status === "running" ? "Running"
+    : status === "pausing" ? "Pausing after batch"
+    : status === "paused" ? "Paused"
+    : status === "stopping" ? "Stopping after batch"
+    : status === "cancelled" ? "Cancelled"
+    : status === "completed" ? "Completed"
+    : status === "partial" ? "Partially completed"
+    : status === "blocked" ? "Blocked"
+    : status === "interrupted" ? "Interrupted"
+    : "Failed";
+}
+const POLL_INTERVAL_OPTIONS = [2000, 5000, 10000, 30000] as const;
+const DEFAULT_POLL_INTERVAL = POLL_INTERVAL_OPTIONS[0];
+const POLLING_STORAGE_PREFIX = "clinical-rag:chunk-review-polling";
+
+function pollingStorageKey(workspaceId: string, docId: string, userId: string): string {
+  return `${POLLING_STORAGE_PREFIX}:${userId}:${workspaceId}:${docId}`;
+}
+
+function readPollingPreference(key: string): { autoPoll: boolean; interval: number } {
+  if (typeof window === "undefined") return { autoPoll: true, interval: DEFAULT_POLL_INTERVAL };
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "null") as
+      { autoPoll?: unknown; interval?: unknown } | null;
+    const interval = typeof parsed?.interval === "number"
+      && (POLL_INTERVAL_OPTIONS as readonly number[]).includes(parsed.interval)
+      ? parsed.interval : DEFAULT_POLL_INTERVAL;
+    return { autoPoll: typeof parsed?.autoPoll === "boolean" ? parsed.autoPoll : true, interval };
+  } catch {
+    return { autoPoll: true, interval: DEFAULT_POLL_INTERVAL };
+  }
+}
+
+function savePollingPreference(key: string, autoPoll: boolean, interval: number): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(key, JSON.stringify({ autoPoll, interval })); } catch { /* Private mode may refuse storage. */ }
+}
+
+function readProcessingState(value: unknown, workspaceId: string, docId: string): ChunkProcessingState {
+  if (typeof value !== "object" || value === null) throw new Error("Invalid processing state.");
+  const state = value as Record<string, unknown>;
+  const chunkedPagesCount = state.chunkedPagesCount as number;
+  if (state.documentId !== docId || state.workspaceId !== workspaceId || typeof state.status !== "string"
+    || !Number.isSafeInteger(state.revision) || !Number.isSafeInteger(chunkedPagesCount)
+    || chunkedPagesCount < 0 || !Array.isArray(state.chunkedPageNumbers)
+    || state.chunkedPageNumbers.some(page => !Number.isSafeInteger(page) || page < 1)
+    || new Set(state.chunkedPageNumbers).size !== state.chunkedPageNumbers.length
+    || state.chunkedPageNumbers.length !== chunkedPagesCount)
+    throw new Error("Invalid processing state.");
+  const counts = state.chunkCounts;
+  if (typeof counts !== "object" || counts === null || !["total", "pending", "accepted", "rejected", "embedded", "other"]
+    .every(name => Number.isSafeInteger((counts as Record<string, unknown>)[name])
+      && ((counts as Record<string, number>)[name] >= 0)))
+    throw new Error("Invalid processing state counts.");
+  return value as ChunkProcessingState;
+}
+
+function processingStateSignature(state: ChunkProcessingState): string {
+  const job = state.job;
+  return JSON.stringify({
+    revision: state.revision,
+    status: state.status,
+    operation: state.processingOperation,
+    failure: state.failureReason,
+    chunked: state.chunkedPageNumbers,
+    counts: state.chunkCounts,
+    job: job && {
+      id: job.id, status: job.status, completed: job.completedPages, failed: job.failedPages,
+      skipped: job.skippedPages, error: job.errorCode, completedBatches: job.completedBatches,
+      currentStart: job.currentBatchStart, currentEnd: job.currentBatchEnd,
+    },
+  });
+}
+
+function jobFailureLabel(code?: string | null): string {
+  return code === "colab_unavailable" ? "Colab model service unavailable"
+    : code === "batch_timeout" ? "A batch timed out"
+    : code === "invalid_batch_result" ? "The chunk service returned an invalid batch"
+    : code === "empty_batch_result" ? "The chunk service returned no chunk or skip for a page"
+    : code === "worker_error" ? "The server interrupted the job"
+    : code ? code.replaceAll("_", " ") : "No error code recorded";
+}
 
 // Parse "--- Page N ---" markers from document text
 function parsePages(text: string): { page: number; text: string }[] {
@@ -142,6 +232,22 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
   const [filterType, setFilterType] = useState<string | null>(null);
   const [filterPage, setFilterPage] = useState<number | null>(null);
   const [expandedChunks, setExpandedChunks] = useState<string[]>([]);
+  const [job, setJob] = useState<ChunkJob | null>(null);
+  const [jobError, setJobError] = useState("");
+  const [processingState, setProcessingState] = useState<ChunkProcessingState | null>(null);
+  const [pollingError, setPollingError] = useState("");
+  const [autoPoll, setAutoPoll] = useState(true);
+  const [pollInterval, setPollInterval] = useState<number>(DEFAULT_POLL_INTERVAL);
+  const [pollingReady, setPollingReady] = useState(false);
+  const [pollingBusy, setPollingBusy] = useState(false);
+  const [pageVisible, setPageVisible] = useState(true);
+  const [lastPolledAt, setLastPolledAt] = useState<Date | null>(null);
+  const pollInFlight = useRef(false);
+  const lastStateSignature = useRef<string | null>(null);
+  const [jobSettings, setJobSettings] = useState({
+    batchSize: 2, maxTokens: 400, batchTimeoutSeconds: 300, maxRetries: 1,
+    failureMode: "continue" as "continue" | "stop",
+  });
 
   const documentKey = ["document", workspaceId, docId, userId];
   const chunksKey = ["chunks", workspaceId, docId, userId];
@@ -150,7 +256,8 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
   const accessKey = ["rules", workspaceId, userId, "access"];
   const accessQuery = useQuery<RuleAccess>({ queryKey: accessKey, retry: false,
     queryFn: ({ signal }) => get(`/api/workspaces/${workspaceId}/rules/access`, { signal, cache: "no-store" }),
-    refetchInterval: busy ? DOCUMENT_POLL_MILLISECONDS : false });
+    refetchInterval: pollingReady && autoPoll && pageVisible && busy ? pollInterval : false,
+    refetchOnWindowFocus: false, refetchOnReconnect: false });
   const canEdit = accessQuery.data?.canEdit === true && ["editor", "owner"].includes(accessQuery.data.role);
   const editingUnavailable = accessQuery.isError || (!!accessQuery.data && !canEdit);
   useEffect(() => { if (editingUnavailable) requests.cancel(); }, [editingUnavailable, requests]);
@@ -161,16 +268,17 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
       const saved = await get<{ guidance: string }>(`/api/workspaces/${workspaceId}/documents/${docId}/chunker-guidance`, { signal, cache: "no-store" });
       if (typeof saved?.guidance !== "string" || saved.guidance.length > 4000) throw new Error("Invalid saved guidance.");
       return saved;
-    } });
+    },
+    refetchOnWindowFocus: false, refetchOnReconnect: false });
   // An untouched field follows saved guidance. Polling/refetch never clobbers a local edit.
   const guidance = guidanceDraft ?? guidanceQuery.data?.guidance ?? "keep each recommendation with its strength grade; never split tables";
   const documentQuery = useQuery({
     queryKey: documentKey,
     queryFn: ({ signal }) => get<Document>(`/api/workspaces/${workspaceId}/documents/${docId}`, { signal, cache: "no-store" }),
     enabled: !!docId,
-    refetchInterval: query => documentPollInterval(query.state.data ? [query.state.data] : [])
-      || (busy ? DOCUMENT_POLL_MILLISECONDS : false),
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const document = documentQuery.data?.id === docId && documentQuery.data.workspaceId === workspaceId ? documentQuery.data : undefined;
 
@@ -178,22 +286,102 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
     queryKey: chunksKey,
     queryFn: async ({ signal }) => readChunks(await get(`/api/workspaces/${workspaceId}/chunks?documentId=${docId}&includeEmbedded=true`, { signal, cache: "no-store" }), workspaceId, docId),
     enabled: !!docId,
-    refetchInterval: busy ? DOCUMENT_POLL_MILLISECONDS : documentPollInterval(document ? [document] : []),
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const progressQuery = useQuery({
     queryKey: progressKey,
     queryFn: async ({ signal }) => readProgress(await get(`/api/workspaces/${workspaceId}/documents/${docId}/chunking-progress`, { signal, cache: "no-store" })),
     enabled: !!docId,
-    refetchInterval: busy ? DOCUMENT_POLL_MILLISECONDS : documentPollInterval(document ? [document] : []),
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const progress = progressQuery.data;
   const readFailed = documentQuery.isError || chunksQuery.isError || progressQuery.isError || guidanceQuery.isError || accessQuery.isError
     || (!!documentQuery.data && !document);
-  const processing = busy !== null || (!!document && (documentIsBusy(document) || document.status === "uploaded"));
+  const jobIsActive = isActiveJob(job);
+  const stateIsProcessing = !!processingState && (processingState.status === "uploaded"
+    || processingState.status === "parsing" || processingState.status === "chunking"
+    || !!processingState.processingOperation);
+  const processing = busy !== null || jobIsActive || stateIsProcessing
+    || (!!document && (documentIsBusy(document) || document.status === "uploaded"));
   const mutationsBlocked = processing || readFailed || !canEdit || !document || !chunksQuery.data || !progress || !guidanceQuery.data;
+
+  const preferenceKey = pollingStorageKey(workspaceId, docId, userId);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const preference = readPollingPreference(preferenceKey);
+      setAutoPoll(preference.autoPoll);
+      setPollInterval(preference.interval);
+      setPollingReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [preferenceKey]);
+  useEffect(() => {
+    if (pollingReady) savePollingPreference(preferenceKey, autoPoll, pollInterval);
+  }, [pollingReady, preferenceKey, autoPoll, pollInterval]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["document", workspaceId, docId, userId] }),
+      qc.invalidateQueries({ queryKey: ["chunks", workspaceId, docId, userId] }),
+      qc.invalidateQueries({ queryKey: ["chunking-progress", workspaceId, docId, userId] }),
+      qc.invalidateQueries({ queryKey: ["documents", workspaceId] }),
+      qc.invalidateQueries({ queryKey: ["chunker-guidance", workspaceId, docId, userId] }),
+      qc.invalidateQueries({ queryKey: ["rules", workspaceId, userId, "access"] }),
+    ]);
+  }, [qc, workspaceId, docId, userId]);
+
+  const pollNow = useCallback(async (full = true) => {
+    if (pollInFlight.current) return;
+    pollInFlight.current = true;
+    setPollingBusy(true);
+    try {
+      const state = readProcessingState(await get<ChunkProcessingState>(
+        `/api/workspaces/${workspaceId}/documents/${docId}/processing-state`, { cache: "no-store" }), workspaceId, docId);
+      setProcessingState(state);
+      setJob(state.job);
+      setPollingError("");
+      const signature = processingStateSignature(state);
+      const changed = lastStateSignature.current !== null && lastStateSignature.current !== signature;
+      lastStateSignature.current = signature;
+      if (full || changed) await refresh();
+    } catch {
+      setPollingError("Unable to refresh processing state. The background job is not cancelled; poll again.");
+      if (full) await refresh();
+    } finally {
+      setLastPolledAt(new Date());
+      pollInFlight.current = false;
+      setPollingBusy(false);
+    }
+  }, [workspaceId, docId, refresh]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void pollNow(false); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [pollNow]);
+
+  useEffect(() => {
+    const onVisibility = () => setPageVisible(window.document.visibilityState === "visible");
+    onVisibility();
+    window.document.addEventListener("visibilitychange", onVisibility);
+    return () => window.document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (!pollingReady || !autoPoll || !pageVisible || !processing) return;
+    const delay = pollingError ? Math.min(pollInterval * 2, 30000) : pollInterval;
+    const timer = setTimeout(() => { void pollNow(false); }, delay);
+    return () => { clearTimeout(timer); };
+  }, [pollingReady, autoPoll, pageVisible, processing, pollInterval, pollingError, lastPolledAt, pollNow]);
+
+  useEffect(() => {
+    if (!job || !(JOB_TERMINAL_STATUSES as readonly string[]).includes(job.status)) return;
+    void refresh();
+  }, [job, refresh]);
 
   // Parse pages from document text
   const parsedText = document?.parsedText;
@@ -208,15 +396,6 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
     if (mutationsBlocked || !unchunkedNumbers.includes(page)) return;
     setPageSelection(selectedPages.includes(page) ? selectedPages.filter(p => p !== page) : [...selectedPages, page].sort((a, b) => a - b));
   };
-
-  async function refresh() {
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: documentKey }), qc.invalidateQueries({ queryKey: chunksKey }),
-      qc.invalidateQueries({ queryKey: progressKey }), qc.invalidateQueries({ queryKey: ["documents", workspaceId] }),
-      qc.invalidateQueries({ queryKey: guidanceKey }),
-      qc.invalidateQueries({ queryKey: accessKey }),
-    ]);
-  }
 
   async function cancelRequest() {
     if (!requests.active || busy === "cancelling") return;
@@ -301,6 +480,98 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
     });
   }
 
+  async function startBackgroundJob(requested: number[]) {
+    if (!requested.length || requests.active || jobIsActive) return;
+    if (requested.some(page => !unchunkedNumbers.includes(page))) return;
+    const request = requests.start();
+    setBusy("chunking"); setJobError(""); setPollingError(""); setNotice("");
+    try {
+      const response = await api<{ jobId: string }>(`/api/workspaces/${workspaceId}/documents/${docId}/chunk-jobs`, {
+        method: "POST",
+        body: JSON.stringify({ pages: requested, guidance, ...jobSettings }),
+        signal: request.signal,
+      });
+      if (!response?.jobId) throw new Error("The chunk job was not accepted.");
+      const next = await get<ChunkJob>(`/api/workspaces/${workspaceId}/chunk-jobs/${response.jobId}`, { cache: "no-store" });
+      if (!request.isCurrent()) return;
+      setJob(next);
+      setNotice(`Chunk job started for ${requested.length} page(s). It continues if you leave this page.`);
+    } catch (cause) {
+      if (request.isCurrent()) {
+        const message = documentActionError(cause, "The background chunk job could not be started.");
+        setJobError(message); setNotice(message); toast.error(message);
+      }
+    } finally {
+      if (request.isCurrent()) { await pollNow(false); if (request.isCurrent()) { request.finish(); setBusy(null); } }
+    }
+  }
+
+  async function runJobAction(action: "pause" | "resume" | "cancel" | "retry") {
+    if (!job || requests.active) return;
+    const request = requests.start();
+    setBusy("job-control"); setJobError(""); setPollingError("");
+    try {
+      if (action === "retry") {
+        const response = await api<{ jobId: string }>(`/api/workspaces/${workspaceId}/chunk-jobs/${job.id}/retry`, {
+          method: "POST", body: JSON.stringify({ scope: "failed" }), signal: request.signal,
+        });
+        if (!response?.jobId) throw new Error("The retry job was not accepted.");
+        const next = await get<ChunkJob>(`/api/workspaces/${workspaceId}/chunk-jobs/${response.jobId}`, { cache: "no-store" });
+        if (!request.isCurrent()) return;
+        setJob(next);
+        setNotice("Retry job started for the failed pages.");
+      } else {
+        const next = await api<ChunkJob | { jobId: string; status: string; pollAfterMs?: number }>(`/api/workspaces/${workspaceId}/chunk-jobs/${job.id}/${action}`, {
+          method: "POST", body: "{}", signal: request.signal,
+        });
+        if (!request.isCurrent()) return;
+        if (action !== "resume") setJob(next as ChunkJob);
+        setNotice(action === "pause" ? "Pause requested after the current batch."
+          : action === "resume" ? "Chunk job resumed." : "Chunk job cancellation requested.");
+      }
+    } catch (cause) {
+      if (request.isCurrent()) {
+        const message = documentActionError(cause, `The chunk job ${action} request was not accepted.`);
+        setJobError(message); setNotice(message); toast.error(message);
+      }
+    } finally {
+      if (request.isCurrent()) { await pollNow(false); if (request.isCurrent()) { request.finish(); setBusy(null); } }
+    }
+  }
+
+  function cancelJob() {
+    if (!job) return;
+    setConfirmation({
+      title: "Cancel this chunk job?",
+      confirmLabel: "Cancel job",
+      description: "The worker will stop after the current batch. Completed pages are kept. You can retry the failed or remaining pages later.",
+      onConfirm: () => void runJobAction("cancel"),
+    });
+  }
+
+  async function retryRemaining() {
+    if (!job || requests.active) return;
+    const request = requests.start();
+    setBusy("job-control"); setJobError(""); setPollingError("");
+    try {
+      const response = await api<{ jobId: string }>(`/api/workspaces/${workspaceId}/chunk-jobs/${job.id}/retry`, {
+        method: "POST", body: JSON.stringify({ scope: "remaining" }), signal: request.signal,
+      });
+      if (!response?.jobId) throw new Error("The retry job was not accepted.");
+      const next = await get<ChunkJob>(`/api/workspaces/${workspaceId}/chunk-jobs/${response.jobId}`, { cache: "no-store" });
+      if (!request.isCurrent()) return;
+      setJob(next);
+      setNotice("Retry job started for the remaining pages.");
+    } catch (cause) {
+      if (request.isCurrent()) {
+        const message = documentActionError(cause, "The remaining-pages retry could not be started.");
+        setJobError(message); setNotice(message); toast.error(message);
+      }
+    } finally {
+      if (request.isCurrent()) { await pollNow(false); if (request.isCurrent()) { request.finish(); setBusy(null); } }
+    }
+  }
+
   function chunkPages(requested: number[]) {
     if (!requested.length || requested.some(page => !unchunkedNumbers.includes(page))) return;
     return runAction("chunking", "Chunking did not complete. Previously completed pages were kept; refresh before retrying.", async request => {
@@ -346,13 +617,31 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
       }) });
   }
 
+  function reparseDocument() {
+    setConfirmation({
+      title: "Re-parse this source PDF?",
+      confirmLabel: "Re-parse source",
+      description: "Replace the stored parsed text with a fresh parse. Chunks on pages whose text changed are kept but marked for re-review, and their vectors are cleared. Chunks on unchanged pages remain reviewed.",
+      onConfirm: () => void runAction("reparse", "The source PDF could not be re-parsed. Existing text and chunks were kept.", async request => {
+        const result = await api<{ changedPages: number; chunksMarked: number; footnoteMarkerCount?: number }>(
+          `/api/workspaces/${workspaceId}/documents/${docId}/reparse`, { method: "POST", body: "{}", signal: request.signal });
+        const changed = mutationCount(result, "changedPages");
+        const marked = mutationCount(result, "chunksMarked");
+        return { message: changed === 0
+          ? "Source re-parsed. No page text changed; existing reviews are unchanged."
+          : `Source re-parsed. ${changed} page(s) changed; ${marked} chunk(s) marked for re-review.`,
+          warning: marked > 0 };
+      })
+    });
+  }
+
   // --- Computed collections ---
   const allChunks = useMemo(() => (chunksQuery.data ?? []).filter(c => c.documentId === docId && c.workspaceId === workspaceId), [chunksQuery.data, docId, workspaceId]);
-  const pendingChunks = useMemo(() => allChunks.filter(c => !["accepted", "rejected", "embedded"].includes(c.status)), [allChunks]);
-  const acceptedChunks = allChunks.filter(c => c.status === "accepted");
-  const rejectedChunks = allChunks.filter(c => c.status === "rejected");
-  const embeddedChunks = allChunks.filter(c => c.status === "embedded");
-  const acceptedAndEmbedded = allChunks.filter(c => c.status === "accepted" || c.status === "embedded");
+  const pendingChunks = useMemo(() => allChunks.filter(c => c.reReviewRequired || !["accepted", "rejected", "embedded"].includes(c.status)), [allChunks]);
+  const acceptedChunks = allChunks.filter(c => c.status === "accepted" && !c.reReviewRequired);
+  const rejectedChunks = allChunks.filter(c => c.status === "rejected" && !c.reReviewRequired);
+  const embeddedChunks = allChunks.filter(c => c.status === "embedded" && !c.reReviewRequired);
+  const acceptedAndEmbedded = allChunks.filter(c => (c.status === "accepted" || c.status === "embedded") && !c.reReviewRequired);
   const frontMatterChunks = allChunks.filter(c => c.type === "front_matter");
 
   // Apply filters
@@ -417,7 +706,7 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
     <h1 className="text-3xl font-bold">Chunk Review</h1>
     {readFailed ? <p role="alert">Could not load document, chunks or processing evidence. Refresh before reviewing or processing this document.</p>
       : <p>Loading document, chunks and processing evidence…</p>}
-    <Button type="button" variant="outline" onClick={() => void refresh()} disabled={documentQuery.isFetching || chunksQuery.isFetching || progressQuery.isFetching}>
+    <Button type="button" variant="outline" onClick={() => void pollNow(true)} disabled={pollingBusy}>
       <RefreshCw aria-hidden="true" className="w-4 h-4 mr-2" /> Refresh
     </Button>
   </div>;
@@ -428,6 +717,21 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
     : document.status === "parsing" ? "Parsing is in progress. Pages appear when parsing finishes."
     : document.failureStage === "parsing" ? "Parsing failed. Return to Documents to Retry Parse."
     : "No parsed pages are available. Return to Documents to check parsing.";
+
+  const jobCompleted = job?.completedPages.length ?? 0;
+  const jobSkipped = job?.skippedPages.length ?? 0;
+  const jobFailed = job?.failedPages.length ?? 0;
+  const jobRemaining = job
+    ? job.pages.filter(page => !job.completedPages.includes(page) && !job.failedPages.includes(page) && !job.skippedPages.includes(page))
+    : [];
+  const jobPercent = job?.pages.length ? Math.round(((jobCompleted + jobSkipped) / job.pages.length) * 1000) / 10 : 0;
+  const jobRunning = isActiveJob(job);
+  const pollDelay = pollingError ? Math.min(pollInterval * 2, 30000) : pollInterval;
+  const nextPollLabel = !autoPoll ? "manual"
+    : !pageVisible ? "paused (tab hidden)"
+    : !processing ? "idle"
+    : lastPolledAt ? new Date(lastPolledAt.getTime() + pollDelay).toLocaleTimeString()
+    : "pending";
 
   return (
     <div className="space-y-6">
@@ -440,6 +744,9 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
             <Badge variant="outline" className={status.color}>{status.label}</Badge>
             {document.guidelineStatus === "draft" && <Badge variant="outline">DRAFT</Badge>}
           </div>
+          {document.needsOcrPages && document.needsOcrPages.length > 0 && <p role="status" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800">
+            Needs OCR: pages {document.needsOcrPages.join(", ")} were image-only and are not available for review or embedding.
+          </p>}
         </div>
         <div className="flex gap-3 flex-wrap">
           <Button type="button" onClick={() => void chunkPages(unchunkedNumbers)}
@@ -451,7 +758,7 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
             <Zap aria-hidden="true" className="w-4 h-4 mr-2" /> Chunk Selected ({selectedPages.length})
           </Button>
           <Button type="button" onClick={() => void bulkAccept()}
-            disabled={mutationsBlocked || pendingWithScore.length === 0} className="min-h-11 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
+            disabled={mutationsBlocked || pendingWithScore.length === 0} className="min-h-11 bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm">
             Accept all ≥ {threshold.toFixed(2)} ({pendingWithScore.length})
           </Button>
           <Button type="button" onClick={() => void bulkRejectFrontMatter()}
@@ -468,12 +775,121 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
           >
             {busy === "embedding" ? <Loader2 aria-hidden="true" className="w-3 h-3 mr-1 animate-spin" /> : <Wand2 aria-hidden="true" className="w-3 h-3 mr-1" />} Embed ({accepted})
           </Button>
-          <Button type="button" variant="outline" className="min-h-11" onClick={() => void refresh()} disabled={documentQuery.isFetching || chunksQuery.isFetching || progressQuery.isFetching}>
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => void pollNow(true)} disabled={pollingBusy}>
             <RefreshCw aria-hidden="true" className="w-4 h-4 mr-2" /> Refresh
           </Button>
           {busy && <Button type="button" variant="outline" className="min-h-11" disabled={busy === "cancelling"} onClick={() => void cancelRequest()}>Cancel request</Button>}
         </div>
       </div>
+
+      <Card className="border-indigo-200 bg-indigo-50/20">
+        <CardHeader className="px-5 py-4 border-b border-indigo-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Background chunk job</h2>
+              <p className="mt-1 text-xs text-slate-600">Runs on the server. Closing this page or stopping polling does not cancel the job.</p>
+            </div>
+            <Badge variant="outline">{job ? jobStatusLabel(job.status) : "No active job"}</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 p-5">
+          {job && <div className="space-y-2 rounded-lg border border-indigo-100 bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+              <span role="status">{jobStatusLabel(job.status)} · {jobCompleted + jobSkipped}/{job.pages.length} pages</span>
+              <span>{job.currentBatchStart != null ? `Current batch: p.${job.currentBatchStart}${job.currentBatchEnd !== job.currentBatchStart ? `–${job.currentBatchEnd}` : ""}` : "No batch in flight"}</span>
+            </div>
+            <progress className="w-full accent-indigo-600" max={100} value={jobPercent} aria-label="Background chunk job progress" />
+            <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+              <span>Completed: {jobCompleted}</span>
+              <span>Failed: {jobFailed}</span>
+              <span>Skipped: {jobSkipped}</span>
+              <span>Remaining: {jobRemaining.length}</span>
+              <span>Batches: {job.completedBatches}/{job.totalBatches}</span>
+            </div>
+            {job.currentBatchStart != null && <p className="text-xs text-indigo-800">The current batch finishes before pause or cancel takes effect.</p>}
+            {job.errorCode && <p role="alert" className="text-xs text-rose-700">{jobFailureLabel(job.errorCode)}.</p>}
+            {(job.status === "failed" || job.status === "partial" || job.status === "blocked" || job.status === "interrupted") &&
+              <p className="text-xs text-slate-600">Completed pages are retained. Use Retry failed or Retry remaining; blocked jobs can be resumed when the model is ready.</p>}
+            <div className="flex flex-wrap gap-2">
+              {job.canPause && <Button type="button" size="sm" variant="outline" onClick={() => void runJobAction("pause")}><Pause className="mr-1 h-4 w-4" aria-hidden="true" /> {job.status === "queued" ? "Pause job" : "Pause after current batch"}</Button>}
+              {job.canResume && <Button type="button" size="sm" onClick={() => void runJobAction("resume")}>Resume job</Button>}
+              {job.canCancel && <Button type="button" size="sm" variant="outline" onClick={cancelJob}>Cancel job</Button>}
+              {job.canRetry && <Button type="button" size="sm" variant="outline" disabled={jobFailed === 0} onClick={() => void runJobAction("retry")}><RotateCcw className="mr-1 h-4 w-4" aria-hidden="true" /> Retry failed ({jobFailed})</Button>}
+              {job.canRetry && <Button type="button" size="sm" variant="outline" disabled={jobRemaining.length === 0} onClick={() => void retryRemaining()}>Retry remaining ({jobRemaining.length})</Button>}
+            </div>
+          </div>}
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-job-batch-size`} className="text-xs">Batch size (1–10)</Label>
+              <Input id={`${id}-job-batch-size`} type="number" min={1} max={10} value={jobSettings.batchSize}
+                disabled={jobRunning} onChange={event => setJobSettings(value => ({ ...value, batchSize: Math.max(1, Math.min(10, Number(event.target.value) || 1)) }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-job-timeout`} className="text-xs">Batch timeout (60–600 s)</Label>
+              <Input id={`${id}-job-timeout`} type="number" min={60} max={600} value={jobSettings.batchTimeoutSeconds}
+                disabled={jobRunning} onChange={event => setJobSettings(value => ({ ...value, batchTimeoutSeconds: Math.max(60, Math.min(600, Number(event.target.value) || 60)) }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-job-retries`} className="text-xs">Max retries (0–3)</Label>
+              <Input id={`${id}-job-retries`} type="number" min={0} max={3} value={jobSettings.maxRetries}
+                disabled={jobRunning} onChange={event => setJobSettings(value => ({ ...value, maxRetries: Math.max(0, Math.min(3, Number(event.target.value) || 0)) }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-job-failure-mode`} className="text-xs">On batch failure</Label>
+              <select id={`${id}-job-failure-mode`} value={jobSettings.failureMode} disabled={jobRunning}
+                onChange={event => setJobSettings(value => ({ ...value, failureMode: event.target.value as "continue" | "stop" }))}
+                className="min-h-11 w-full rounded-md border border-slate-300 bg-white px-2 text-sm">
+                <option value="continue">Continue to next batch</option>
+                <option value="stop">Stop job</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-job-max-tokens`} className="text-xs">Max tokens (100–2000)</Label>
+              <Input id={`${id}-job-max-tokens`} type="number" min={100} max={2000} value={jobSettings.maxTokens}
+                disabled={jobRunning} onChange={event => setJobSettings(value => ({ ...value, maxTokens: Math.max(100, Math.min(2000, Number(event.target.value) || 100)) }))} />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={() => void startBackgroundJob(unchunkedNumbers)}
+              disabled={mutationsBlocked || jobRunning || unchunkedNumbers.length === 0} className="min-h-11 bg-indigo-600 text-white hover:bg-indigo-700">
+              <Play className="mr-1 h-4 w-4" aria-hidden="true" /> Start job: all remaining ({unchunkedNumbers.length})
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void startBackgroundJob(selectedPages)}
+              disabled={mutationsBlocked || jobRunning || selectedPages.length === 0} className="min-h-11">
+              Start job: selected ({selectedPages.length})
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-600">
+            <label className="inline-flex min-h-9 items-center gap-2">
+              <input type="checkbox" checked={autoPoll} disabled={!pollingReady}
+                onChange={event => setAutoPoll(event.target.checked)} /> Auto-poll all page reads
+            </label>
+            <label htmlFor={`${id}-poll-interval`} className="inline-flex items-center gap-2">Interval
+              <select id={`${id}-poll-interval`} value={pollInterval} disabled={!pollingReady}
+                onChange={event => setPollInterval(Number(event.target.value))}
+                className="min-h-9 rounded border border-slate-300 bg-white px-1">
+                {POLL_INTERVAL_OPTIONS.map(interval => <option key={interval} value={interval}>{interval / 1000}s</option>)}
+              </select>
+            </label>
+            <Button type="button" size="sm" variant="outline" onClick={() => void pollNow(true)} disabled={!pollingReady || pollingBusy}>
+              {pollingBusy ? <Loader2 aria-hidden="true" className="mr-1 h-4 w-4 animate-spin" /> : null} Poll now
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setAutoPoll(false)} disabled={!autoPoll}>Stop polling</Button>
+            <span>Last update: {lastPolledAt ? lastPolledAt.toLocaleTimeString() : "not yet"}</span>
+            <span>Next poll: {nextPollLabel}</span>
+          </div>
+          <p className="text-xs text-slate-600">
+            These controls apply to the whole page: document status, chunks, chunking progress and the chunk job.
+            Stop polling stops all periodic page reads but does not cancel the worker.
+            {!autoPoll ? " Manual updates only: use Poll now or Refresh." : ""}
+          </p>
+          {(jobError || pollingError) && <p role="alert" className="text-xs text-rose-700">{jobError || pollingError}</p>}
+          {!job && <p className="text-xs text-slate-600">No active background job. Start one above; the legacy synchronous buttons remain available for compatibility.</p>}
+        </CardContent>
+      </Card>
 
       {document?.failureReason && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{document.failureReason}</p>}
       {readFailed && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">Could not refresh processing evidence. Displayed statuses and counts may be out of date; mutation controls stay disabled until refresh succeeds.</p>}
@@ -497,6 +913,7 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
           <Button type="button" variant="outline" disabled={mutationsBlocked || !resetSelection.length || resetSelection.length > 1000} onClick={() => resetPages([...resetSelection])}>Reset selected pages</Button>
           <Button type="button" variant="outline" disabled={mutationsBlocked || !pages.length || pages.length > 1000} onClick={() => resetPages(pages.map(page => page.page))}>Reset all pages</Button>
           <Button type="button" variant="outline" disabled={mutationsBlocked || !embeddedChunks.length} onClick={resetEmbeddings}>Reset embeddings</Button>
+          <Button type="button" variant="outline" disabled={mutationsBlocked} onClick={reparseDocument}>Re-parse source PDF</Button>
         </div>
         {pages.length > 1000 && <p className="mt-2 text-sm">Reset at most 1000 selected pages per request.</p>}
       </details>
@@ -527,7 +944,7 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
       {/* Tabbed interface */}
       <div className="space-y-4">
         <Tabs defaultValue="document">
-          <TabsList aria-label="Document review views" className="grid w-full grid-cols-3 h-auto! min-h-11">
+          <TabsList aria-label="Document review views" className="grid w-full grid-cols-1 h-auto! min-h-11 sm:grid-cols-3">
             <TabsTrigger value="document" className="flex-1">
               <FileText aria-hidden="true" className="w-4 h-4 mr-2" /> Document Text
             </TabsTrigger>
@@ -949,12 +1366,18 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
             {c.strength && <span className="text-xs text-slate-400">· {c.strength}</span>}
             {c.certainty && <span className="text-xs text-slate-400">· {c.certainty}</span>}
             {c.type === "front_matter" && <Badge variant="outline" className="px-2 py-0.5 text-xs text-rose-600 border-rose-200 bg-rose-50">Front Matter</Badge>}
+            {c.reReviewRequired && <Badge variant="outline" className="px-2 py-0.5 text-xs text-amber-700 border-amber-300 bg-amber-50">Needs re-review</Badge>}
           </div>
           <div className="flex items-center gap-1">
             <span className={`text-xs font-mono font-bold ${scoreColor(c.confidence)}`}>{formatScore(c.confidence)}</span>
             {renderVerbatimBadge(c)}
           </div>
         </div>
+        {c.reReviewRequired && c.validationError && (
+          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+            <span className="font-semibold">Source changed:</span> {c.validationError}
+          </div>
+        )}
         {c.verbatim === false && c.validationError && (
           <div className="mb-3 p-3 bg-rose-50 border border-rose-100 rounded text-xs text-rose-700">
             <span className="font-semibold">Validation warning:</span> {c.validationError}
@@ -971,7 +1394,7 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
           )}
         </div>
         <div className="flex gap-2">
-          <Button type="button" size="sm" aria-label={`Accept ${chunkName(c)}`} disabled={mutationsBlocked} onClick={() => void reviewChunk(c.id, "accepted")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-medium shadow-sm">
+          <Button type="button" size="sm" aria-label={`Accept ${chunkName(c)}`} disabled={mutationsBlocked} onClick={() => void reviewChunk(c.id, "accepted")} className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-xs font-medium shadow-sm">
             <CheckCircle aria-hidden="true" className="w-3 h-3 mr-1" /> Accept
           </Button>
           <Button type="button" size="sm" variant="outline" aria-label={`Reject ${chunkName(c)}`} disabled={mutationsBlocked} onClick={() => void reviewChunk(c.id, "rejected")} className="border-rose-200 text-rose-600 hover:bg-rose-50 px-3 py-1.5 text-xs font-medium shadow-sm">
@@ -1001,6 +1424,7 @@ function ChunkReview({ workspaceId, docId, userId }: { workspaceId: string; docI
             {c.strength && <span className="text-xs text-slate-400">· {c.strength}</span>}
             {c.certainty && <span className="text-xs text-slate-400">· {c.certainty}</span>}
             {c.type === "front_matter" && <Badge variant="outline" className="px-2 py-0.5 text-xs text-rose-600 border-rose-200 bg-rose-50">Front Matter</Badge>}
+            {c.reReviewRequired && <Badge variant="outline" className="px-2 py-0.5 text-xs text-amber-700 border-amber-300 bg-amber-50">Needs re-review</Badge>}
           </div>
           <span className={`text-xs font-mono font-bold ${scoreColor(c.confidence)}`}>{formatScore(c.confidence)}</span>
         </div>

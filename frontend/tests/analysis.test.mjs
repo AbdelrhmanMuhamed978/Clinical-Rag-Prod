@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parsePipelineResult, verifiedSummary, withVerifiedTurn } from "../src/lib/analysis.ts";
+import { displaySection, parsePipelineResult, verifiedSummary, withVerifiedTurn } from "../src/lib/analysis.ts";
 
 function result() {
   return {
@@ -26,6 +26,44 @@ test("free-text and malformed answers are never accepted as verified results", (
   const withIssues = result();
   withIssues.problems[0].items[0].issues = ["scope mismatch"];
   assert.throws(() => parsePipelineResult(withIssues));
+});
+
+test("section hierarchy is rendered readably and table markers are removed", () => {
+  assert.equal(displaySection("TABLES|Treatment|Induction therapy"), "Treatment > Induction therapy");
+  assert.equal(displaySection("Treatment · Induction therapy"), "Treatment > Induction therapy");
+  assert.equal(displaySection("Treatment > Induction therapy"), "Treatment > Induction therapy");
+  assert.equal(displaySection(""), "Section not stated");
+});
+
+test("verified table metadata is validated and projected", () => {
+  const value = result();
+  value.problems[0].items[0].table = { headers: ["Intervention", "CD4 cell count"], row: ["Synthetic row", "Synthetic cell"] };
+  const parsed = parsePipelineResult(value);
+  assert.deepEqual(parsed.problems[0].items[0].table, {
+    headers: ["Intervention", "CD4 cell count"], row: ["Synthetic row", "Synthetic cell"],
+  });
+  const malformed = result();
+  malformed.problems[0].items[0].table = { headers: ["Intervention", "CD4 cell count"], row: ["Synthetic row"] };
+  assert.throws(() => parsePipelineResult(malformed));
+  const unknown = result();
+  unknown.problems[0].items[0].table = { headers: ["A"], row: ["B"] };
+  assert.throws(() => parsePipelineResult(unknown));
+});
+
+test("related verified items and coverage are closed and never become lead items", () => {
+  const value = result();
+  const item = value.problems[0].items[0];
+  value.problems[0].covers = "Synthetic question part";
+  value.problems[0].related = [{ ...item, citation: { ...item.citation, id: "S2" } }];
+  value.problems[0].items = [];
+  value.coverage = [{ part: "Synthetic question part", status: "related_only" }];
+  const parsed = parsePipelineResult(value);
+  assert.equal(parsed.problems[0].items.length, 0);
+  assert.equal(parsed.problems[0].related?.[0].citation.id, "S2");
+  assert.deepEqual(parsed.coverage, [{ part: "Synthetic question part", status: "related_only" }]);
+  const malformed = result();
+  malformed.coverage = [{ part: "Synthetic", status: "PRIVATE_STATUS" }];
+  assert.throws(() => parsePipelineResult(malformed));
 });
 
 test("conversation summaries contain only verified recommendations", () => {
@@ -54,6 +92,24 @@ test("empty metadata and contradictory verification status fail closed", () => {
   const invalid = result();
   invalid.problems[0].status = "error";
   assert.throws(() => parsePipelineResult(invalid));
+});
+
+test("not-covered reasons are closed safe categories and never accept model text", () => {
+  for (const reason of ["nothing_retrieved", "retrieved_unverified", "only_draft_sources"]) {
+    const value = result();
+    value.problems[0].status = "not_found";
+    value.problems[0].items = [];
+    value.problems[0].reason = reason;
+    assert.equal(parsePipelineResult(value).problems[0].reason, reason);
+  }
+  const unknown = result();
+  unknown.problems[0].status = "not_found";
+  unknown.problems[0].items = [];
+  unknown.problems[0].reason = "PRIVATE_MODEL_TEXT";
+  assert.throws(() => parsePipelineResult(unknown));
+  const okWithReason = result();
+  okWithReason.problems[0].reason = "nothing_retrieved";
+  assert.throws(() => parsePipelineResult(okWithReason));
 });
 
 test("only authoritative pipeline modes are accepted for live and saved results", () => {

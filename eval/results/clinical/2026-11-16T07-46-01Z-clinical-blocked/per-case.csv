@@ -1,0 +1,1 @@
+case_id,http_status,error,hit_at_k,rank,section_matched,expected_statements,matched_expected_statements,forbidden_violations,forbidden_rejected,verified_items,candidate_statements,verified_statements,diagnostics_available,pipeline_not_covered_count,duration_ms

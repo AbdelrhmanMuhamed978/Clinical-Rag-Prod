@@ -235,6 +235,37 @@ public class VerifiedPipelineControllerTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Ordinary_analysis_never_requests_or_exposes_injected_diagnostics(bool stream)
+    {
+        var setup = await CreateControllerAsync();
+        await using var db = setup.Db;
+        var raw = JsonNode.Parse(setup.Pipeline.Result.GetRawText())!;
+        raw["diagnostics"] = JsonNode.Parse("""
+            [{"problemIndex":1,"drafts":1,"candidates":1,"verified":1,
+              "quote":"PRIVATE_DIAGNOSTIC_TEXT","reasons":{"quote_not_found":1}}]
+            """);
+        setup.Pipeline.Result = JsonSerializer.SerializeToElement(raw);
+        string returned;
+        if (stream)
+            returned = JsonSerializer.Serialize(await ReadStreamAsync(setup));
+        else
+        {
+            var response = await setup.Controller.Analyze(setup.Workspace.Id, new AnalyzeDto("Synthetic source question?"));
+            returned = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(response).Value);
+        }
+        Assert.NotNull(setup.Pipeline.Request);
+        Assert.False(setup.Pipeline.Request.TestRunDiagnostics);
+        Assert.DoesNotContain("diagnostics", returned, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PRIVATE_DIAGNOSTIC_TEXT", returned);
+        var stored = (await db.AnalysisRuns.SingleAsync()).ResultJson;
+        Assert.NotNull(stored);
+        Assert.DoesNotContain("diagnostics", stored!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PRIVATE_DIAGNOSTIC_TEXT", stored!);
+    }
+
+    [Theory]
     [InlineData(null, false, true)]
     [InlineData(null, true, false)]
     [InlineData("false", false, false)]
@@ -250,6 +281,18 @@ public class VerifiedPipelineControllerTests
         Assert.Equal(shouldStore, run.ResultJson != null);
         Assert.Equal(setup.User.Id, run.UserId);
         Assert.Equal(7, run.ConfigVersion);
+        Assert.Equal(64, run.InputHash.Length);
+    }
+
+    [Fact]
+    public async Task Short_case_facts_keep_the_privacy_storage_rule_strict()
+    {
+        var setup = await CreateControllerAsync();
+        await using var db = setup.Db;
+        Assert.IsType<OkObjectResult>(await setup.Controller.Analyze(setup.Workspace.Id,
+            new AnalyzeDto("62 year old woman with BP 80/50 and creatinine 2.5; which vasopressor?")));
+        var run = await db.AnalysisRuns.SingleAsync();
+        Assert.Null(run.ResultJson);
         Assert.Equal(64, run.InputHash.Length);
     }
 

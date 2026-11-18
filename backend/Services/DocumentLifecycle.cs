@@ -15,7 +15,10 @@ public sealed record DocumentView(
     string? Society, int? Year, string GuidelineStatus, string? ProcessingOperation,
     string? FailureStage, string? FailureReason, int Revision,
     DateTime CreatedAt, DateTime UpdatedAt, DocumentChunkCounts ChunkCounts,
-    int? EmbeddingTotal = null, int EmbeddingCompleted = 0, int? EmbeddingBatchSize = null);
+    int? EmbeddingTotal = null, int EmbeddingCompleted = 0, int? EmbeddingBatchSize = null,
+    IReadOnlyList<int>? NeedsOcrPages = null, string? Title = null, string? Version = null,
+    DateTime? EffectiveDate = null, DateTime? ReviewByDate = null, string? SourceUrl = null,
+    string? PermissionNote = null);
 
 /// <summary>
 /// Document state is evidence of server work, never a client assertion. The revision
@@ -26,8 +29,19 @@ public static class DocumentLifecycle
     public static bool IsBusy(Document document) => !string.IsNullOrEmpty(document.ProcessingOperation)
         || document.Status is "parsing" or "chunking";
 
+    public static IReadOnlyList<int> ParseNeedsOcr(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<int[]>(json)
+                ?.Where(page => page > 0).Distinct().Order().ToArray() ?? [];
+        }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
+
     public static string Status(string status, string? operation, string? failureReason,
-        int parsedTextLength, DocumentChunkCounts counts)
+        int parsedTextLength, DocumentChunkCounts counts, IReadOnlyList<int>? needsOcrPages = null)
     {
         if (operation is "parsing" or "chunking") return operation;
         if (operation == "embedding") return "review";
@@ -38,7 +52,7 @@ public static class DocumentLifecycle
         if (counts.Embedded > 0 && counts.Accepted == 0 && counts.Pending == 0 && counts.Other == 0)
             return "indexed";
         if (counts.Total > 0) return "review";
-        return parsedTextLength > 0 ? "parsed" : "uploaded";
+        return parsedTextLength > 0 || needsOcrPages is { Count: > 0 } ? "parsed" : "uploaded";
     }
 
     public static DocumentChunkCounts Counts(IEnumerable<(string Status, bool HasEmbedding)> chunks)
@@ -109,19 +123,22 @@ public static class DocumentLifecycle
             Sum(s => s.Status == "accepted" || (s.Status == "embedded" && !s.HasEmbedding)), Sum(s => s.Status == "rejected"),
             Sum(s => s.Status == "embedded" && s.HasEmbedding), Sum(s => s.Status is not ("pending" or "accepted" or "rejected" or "embedded")));
         document.Status = Status(document.Status, document.ProcessingOperation, document.FailureReason,
-            document.ParsedText?.Length ?? 0, counts);
+            document.ParsedText?.Length ?? 0, counts, ParseNeedsOcr(document.NeedsOcrPages));
         Touch(document);
     }
 
     public static DocumentView View(Document document, DocumentChunkCounts counts, bool includeText = false)
     {
         var length = document.ParsedText?.Length ?? 0;
+        var needsOcr = ParseNeedsOcr(document.NeedsOcrPages);
         return new(document.Id, document.WorkspaceId, document.FileName,
-            Status(document.Status, document.ProcessingOperation, document.FailureReason, length, counts),
+            Status(document.Status, document.ProcessingOperation, document.FailureReason, length, counts, needsOcr),
             document.PageCount, length, includeText ? document.ParsedText : null,
             document.ChunkedPagesCount, document.ChunkingStatus, document.Society, document.Year,
             document.GuidelineStatus, document.ProcessingOperation, document.FailureStage,
             document.FailureReason, document.Revision, document.CreatedAt, document.UpdatedAt, counts,
-            document.EmbeddingTotal, document.EmbeddingCompleted, document.EmbeddingBatchSize);
+            document.EmbeddingTotal, document.EmbeddingCompleted, document.EmbeddingBatchSize, needsOcr,
+            document.Title, document.Version, document.EffectiveDate, document.ReviewByDate,
+            document.SourceUrl, document.PermissionNote);
     }
 }

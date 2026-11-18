@@ -53,9 +53,9 @@ if __name__ == "__main__":
     if args.patch:
         content = "{\n" + ",\n".join("  " + json.dumps(key) + ": " + json.dumps(value, ensure_ascii=True, separators=(",", ":"))
                                           for key, value in expected.items()) + "\n}\n"
-        print("*** Begin Patch\n*** Add File: clinical-text.json\n" + "\n".join("+" + line for line in content.splitlines()) + "\n*** End Patch")
+        print("*** Begin Patch\n*** Add File: python-backend/clinical-text.json\n" + "\n".join("+" + line for line in content.splitlines()) + "\n*** End Patch")
     else:
-        actual = json.loads((Path(__file__).resolve().parents[1] / "clinical-text.json").read_text(encoding="utf-8"))
+        actual = json.loads((Path(__file__).resolve().parents[1] / "python-backend" / "clinical-text.json").read_text(encoding="utf-8"))
         if actual != expected:
             raise SystemExit("clinical-text.json does not match the pinned Unicode data.")
         print(f"Unicode {expected['unicode_version']}: asset verified; {len(expected['casefold_ranges'])} folding ranges, "

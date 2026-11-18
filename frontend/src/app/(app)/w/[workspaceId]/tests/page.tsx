@@ -119,7 +119,7 @@ export default function TestsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Tests</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" disabled={busy || runPhase === "running"} onClick={() => importSeed.mutate()}>Import seed cases</Button>
@@ -132,8 +132,8 @@ export default function TestsPage() {
       {runPhase === "done" && runResults.length > 0 && <div className="rounded-lg border bg-card p-4">
         <h2 className="text-sm font-semibold mb-2">Run results</h2>
         <div className="space-y-2">
-          {runResults.map(r => <div key={r.caseId} className="flex items-center gap-3 text-sm">
-            <span className="w-32 truncate">{r.caseName}</span>
+          {runResults.map(r => <div key={r.caseId} className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="min-w-0 flex-1 basis-32 truncate">{r.caseName}</span>
             {statusBadge(r.status)}
             {r.durationMilliseconds > 0 && <span className="ml-auto text-muted-foreground">{r.durationMilliseconds.toFixed(0)} ms</span>}
           </div>)}
@@ -147,9 +147,9 @@ export default function TestsPage() {
       <Card>
         <CardHeader><CardTitle>New case</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="Case name" className="min-h-12" />
-          <Textarea value={input} onChange={e => setInput(e.target.value)} rows={4} placeholder="Case text — the full clinical case to analyze" className="min-h-[120px]" />
-          <Textarea value={expected} onChange={e => setExpected(e.target.value)} rows={4} placeholder="Expected output JSON (optional)" className="min-h-[120px]" />
+          <Input aria-label="Case name" value={name} onChange={e => setName(e.target.value)} placeholder="Case name" className="min-h-12" />
+          <Textarea aria-label="Case text" value={input} onChange={e => setInput(e.target.value)} rows={4} placeholder="Case text — the full clinical case to analyze" className="min-h-[120px]" />
+          <Textarea aria-label="Expected output JSON (optional)" value={expected} onChange={e => setExpected(e.target.value)} rows={4} placeholder="Expected output JSON (optional)" className="min-h-[120px]" />
           <p className="text-xs text-muted-foreground">Expected JSON schema: {JSON.stringify(expectedSchema)}</p>
           <Button type="button" disabled={busy || !name || !input} onClick={() => create.mutate()}>Add case</Button>
         </CardContent>
@@ -165,24 +165,24 @@ export default function TestsPage() {
               <CardContent className="p-4 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
-                    <input type="checkbox" checked={selected} onChange={() => {
+                    <input type="checkbox" aria-label={`Select ${c.name}`} checked={selected} onChange={() => {
                       const next = new Set(selectedCaseIds);
                       if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
                       setSelectedCaseIds(next);
                     }} className="size-4 accent-primary" />
                     {isEditing ? (
                       <div className="space-y-1">
-                        <Input value={editing.name} onChange={e => setEditing(prev => prev ? { ...prev, name: e.target.value } : null)} className="min-h-10 text-base font-medium" />
-                        <Textarea value={editing.input} onChange={e => setEditing(prev => prev ? { ...prev, input: e.target.value } : null)} rows={3} className="min-h-[80px]" />
-                        <Textarea value={editing.expected} onChange={e => setEditing(prev => prev ? { ...prev, expected: e.target.value } : null)} rows={3} className="min-h-[80px]" />
+                        <Input aria-label="Edit case name" value={editing.name} onChange={e => setEditing(prev => prev ? { ...prev, name: e.target.value } : null)} className="min-h-10 text-base font-medium" />
+                        <Textarea aria-label="Edit case text" value={editing.input} onChange={e => setEditing(prev => prev ? { ...prev, input: e.target.value } : null)} rows={3} className="min-h-[80px]" />
+                        <Textarea aria-label="Edit expected output JSON" value={editing.expected} onChange={e => setEditing(prev => prev ? { ...prev, expected: e.target.value } : null)} rows={3} className="min-h-[80px]" />
                         <div className="flex gap-2">
                           <Button type="button" variant="outline" size="sm" onClick={() => { updateCase.mutate({ id: c.id, dto: { name: editing.name, inputText: editing.input, expectedJson: editing.expected || undefined } }); }}>Save</Button>
                           <Button type="button" variant="outline" size="sm" onClick={() => setEditing(null)}>Cancel</Button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate w-48">{c.name}</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <span className="min-w-0 max-w-full flex-1 truncate font-medium">{c.name}</span>
                         <Button type="button" variant="ghost" size="sm" onClick={() => setEditing({ id: c.id, name: c.name, input: c.inputText, expected: c.expectedJson ?? "" })}>Edit</Button>
                       </div>
                     )}
@@ -200,9 +200,9 @@ export default function TestsPage() {
             </Card>
           );
         })}
-        {cases.length > 0 && <div className="border-t pt-4 flex items-center justify-between">
+        {cases.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
           <div className="flex items-center gap-2">
-            <input type="checkbox" checked={allSelected} onChange={() => {
+            <input type="checkbox" aria-label="Select all test cases" checked={allSelected} onChange={() => {
               if (allSelected) setSelectedCaseIds(new Set());
               else setSelectedCaseIds(new Set(cases.map(c => c.id)));
             }} className="size-4 accent-primary" />

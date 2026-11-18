@@ -8,6 +8,7 @@ import { GuardedLink as Link, NavigationGuardProvider, useNavigationGuard } from
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { FirstUseNotice } from "@/components/clinical-limitations";
 
 const NAV = [
   { label: "Documents", suffix: "documents" },
@@ -78,6 +79,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
          {signOutError && <p role="alert" className="text-sm text-destructive">{signOutError}</p>}
       </aside>
       <main className="flex-1 p-6">
+        <FirstUseNotice />
         {/* Breadcrumbs */}
         {breadcrumbs.length > 0 && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">

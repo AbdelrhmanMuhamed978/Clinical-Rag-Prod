@@ -96,8 +96,16 @@ public sealed class RuleService
                 if (rule.Status is not ("draft" or "in_review")) throw new RuleLifecycleException("Only saved drafts or rules in review can be approved.");
                 RuleValidator.Validate(rule);
                 await EnsureUniqueAsync(workspaceId, rule, token);
+                var reviewer = await _db.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == actor, token);
+                var reviewerName = (reviewer?.DisplayName ?? reviewer?.Email ?? "").Trim();
+                var approvedSourceUrl = FirstSourceUrl(rule.Sources);
+                if (string.IsNullOrWhiteSpace(reviewerName) || string.IsNullOrWhiteSpace(approvedSourceUrl))
+                    throw new RuleLifecycleException(
+                        "Approval requires a named clinician reviewer and a valid source URL on the rule.", 400);
                 rule.Status = "approved";
                 rule.ReviewedBy = actor;
+                rule.ReviewerName = reviewerName;
+                rule.ApprovedSourceUrl = approvedSourceUrl;
                 rule.ReviewedAt = DateTime.UtcNow;
                 rule.ReviewedCatalogRevision = (await CatalogCoreAsync(workspaceId, token)).Revision;
                 break;
@@ -288,8 +296,25 @@ public sealed class RuleService
     }
     private static void Invalidate(Rule rule, Guid actor)
     {
-        rule.Status = "draft"; rule.ReviewedAt = null; rule.ReviewedBy = null; rule.ReviewedCatalogRevision = null;
+        rule.Status = "draft"; rule.ReviewedAt = null; rule.ReviewedBy = null;
+        rule.ReviewerName = null; rule.ApprovedSourceUrl = null; rule.ReviewedCatalogRevision = null;
         rule.Revision++; rule.UpdatedBy = actor; rule.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static string? FirstSourceUrl(string? sources)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(sources ?? "[]");
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return null;
+            foreach (var source in document.RootElement.EnumerateArray())
+                if (source.ValueKind == JsonValueKind.Object
+                    && source.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String
+                    && ClinicalText.HttpSourceUrl(url.GetString()!))
+                    return url.GetString();
+        }
+        catch (JsonException) { }
+        return null;
     }
     private static bool SameDefinition(Rule a, Rule b) => a.RuleId == b.RuleId && a.Title == b.Title && a.DrugClasses == b.DrugClasses
         && a.AppliesWhen == b.AppliesWhen && a.Level == b.Level && a.Message == b.Message && a.Caveat == b.Caveat

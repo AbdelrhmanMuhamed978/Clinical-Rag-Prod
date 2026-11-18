@@ -5,10 +5,13 @@ public readonly record struct ChunkSearchHit(Guid Id, double Score);
 public static class ReciprocalRankFusion
 {
     public static IReadOnlyList<ChunkSearchHit> Fuse(IReadOnlyList<ChunkSearchHit> dense, IReadOnlyList<ChunkSearchHit> lexical, int limit)
+        => Fuse(new[] { dense, lexical }, limit);
+
+    public static IReadOnlyList<ChunkSearchHit> Fuse(IEnumerable<IReadOnlyList<ChunkSearchHit>> legs, int limit)
     {
         if (limit < 1) return [];
         var scores = new Dictionary<Guid, double>();
-        foreach (var leg in new[] { dense, lexical })
+        foreach (var leg in legs)
         {
             var seen = new HashSet<Guid>();
             var rank = 0;

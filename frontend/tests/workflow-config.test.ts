@@ -39,7 +39,7 @@ describe("Complete workflow configuration helpers", () => {
   it("fills schema defaults, keeps untouched future values and forces the verifier lock", () => {
     const base: JsonObject = { retrieval: { candidates: 60 }, safety: { verifierLocked: false, minQuoteMatch: 0.93 }, future: { keep: [1, 2] } };
     const fields = workflowFields(base); const complete = composeWorkflowConfig(base, fields);
-    expect(complete.retrieval).toEqual({ minRerank: 0.3, topK: 8, candidates: 60, queriesPerProblem: 2, maxChunks: 8 });
+    expect(complete.retrieval).toEqual({ minRerank: 0.3, topK: 8, candidates: 60, queriesPerProblem: 2, maxChunks: 8, hydeEnabled: false });
     expect(complete.chunking).toEqual({ maxTokens: 400, hybrid: true });
     expect(complete.safety).toEqual({ verifierLocked: true, minQuoteMatch: 0.93 }); expect(complete.future).toEqual(base.future);
     expect(validateWorkflowFields(fields)).toEqual({}); expect(base.safety).toEqual({ verifierLocked: false, minQuoteMatch: 0.93 });

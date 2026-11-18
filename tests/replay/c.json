@@ -1,0 +1,11 @@
+{
+  "format": 1, "synthetic": true, "observation": "c", "captureKind": "new-reproduction-not-historical-recording",
+  "model": "Qwen/Qwen3-4B-Instruct-2507", "requestId": "8a4b71582c1147acb05f6efedde26769",
+  "problems": [{
+    "index":1, "title":"What does the DRAFT synthetic protocol say about creatinine review?",
+    "topic":["creat", "draft", "monit", "proto", "synth"],
+    "sources":{"S1":"final-kidney", "S2":"final-pressure", "S3":"final-medication", "S4":"draft-kidney", "S5":"draft-pressure", "S6":"draft-medication"},
+    "output":{"response":"SOURCE: S1  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S4  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S1  \nRECOMMENDATION: The dummy kidney-function review marker is GREEN.  \nQUOTE: The dummy kidney-function review marker is GREEN.  \n\nSOURCE: S4  \nRECOMMENDATION: The dummy kidney-function review marker is PENDING-GREEN.  \nQUOTE: The dummy kidney-function review marker is PENDING-GREEN.", "finish_reason":"stop", "truncated":false},
+    "baseline":{"status":"ok", "verified":4, "excluded":0}, "expected":{"verified":4, "reasons":{}}
+  }]
+}

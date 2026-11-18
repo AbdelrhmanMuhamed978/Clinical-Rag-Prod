@@ -22,8 +22,10 @@ public class Workspace
     public DateTime? DeletedAt { get; set; }
     public Guid? DeletedBy { get; set; }
     [JsonIgnore] public int MembershipRevision { get; set; } = 1;
+    [JsonIgnore] public long SearchGeneration { get; set; }
     [JsonIgnore, MaxLength(256)] public string? EmbeddingModel { get; set; }
     [JsonIgnore] public int? EmbeddingDimensions { get; set; }
+    public bool AllowSupersededGuidelines { get; set; }
 }
 
 public class WorkspaceMember
@@ -56,6 +58,7 @@ public class Document
     [Required, MaxLength(256)] public string FileName { get; set; } = "";
     [MaxLength(512)] public string? StoragePath { get; set; }
     public string? ParsedText { get; set; }  // extracted text with page markers (nvarchar(max))
+    public string? FootnoteMarkers { get; set; }  // JSON page/offset markers removed from visible text
     [Required, MaxLength(32)] public string Status { get; set; } = "uploaded";
     [MaxLength(32)] public string? ProcessingOperation { get; set; } // parsing | chunking | embedding; null when idle
     [MaxLength(32)] public string? FailureStage { get; set; }
@@ -65,12 +68,19 @@ public class Document
     public int EmbeddingCompleted { get; set; }
     public int? EmbeddingBatchSize { get; set; }
     public int? PageCount { get; set; }
+    [MaxLength(1024)] public string? NeedsOcrPages { get; set; } // JSON array of image-only/near-empty page numbers
     public int? ChunkedPagesCount { get; set; } = 0;  // how many pages have been chunked
     public string? ChunkingStatus { get; set; } = "not_started"; // not_started | in_progress | partial | completed | failed
     public string? ChunkedPageNumbers { get; set; } // JSON array of chunked page numbers
     public string? Society { get; set; }  // publishing society/organization
+    [MaxLength(512)] public string? Title { get; set; }
+    [MaxLength(64)] public string? Version { get; set; }
     public int? Year { get; set; }  // source guideline year
-    [Required, MaxLength(16)] public string GuidelineStatus { get; set; } = "unknown"; // final | draft | unknown
+    [Required, MaxLength(16)] public string GuidelineStatus { get; set; } = "unknown"; // final | draft | superseded
+    public DateTime? EffectiveDate { get; set; }
+    public DateTime? ReviewByDate { get; set; }
+    [MaxLength(2048)] public string? SourceUrl { get; set; }
+    [MaxLength(1024)] public string? PermissionNote { get; set; }
     public Guid? UpdatedBy { get; set; }  // user who last updated the document
     public Guid? UploadedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -94,6 +104,7 @@ public class Chunk
     [Required, MaxLength(16)] public string Type { get; set; } = "clinical";  // clinical | front_matter
     public bool Verbatim { get; set; }  // chunk text is verbatim to source page
     public string? ValidationError { get; set; }  // validation failure message, if any
+    public bool ReReviewRequired { get; set; }  // source text changed after re-parse; exclude until reviewed
     public string? EmbeddingModel { get; set; }  // model used to generate the embedding
     [Required] public string Text { get; set; } = "";
     [Required, MaxLength(16)] public string Status { get; set; } = "pending";
@@ -137,6 +148,8 @@ public class Rule
     public int Revision { get; set; } = 1;
     public int? ReviewedCatalogRevision { get; set; }
     public Guid? ReviewedBy { get; set; }
+    [MaxLength(256)] public string? ReviewerName { get; set; }
+    [MaxLength(2048)] public string? ApprovedSourceUrl { get; set; }
     public DateTime? ReviewedAt { get; set; }
     public Guid? CreatedBy { get; set; }
     public Guid? UpdatedBy { get; set; }
@@ -178,6 +191,8 @@ public class TestCase
     public string? LastRunJson { get; set; }
     public DateTime? LastRunAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public int Revision { get; set; } = 1;
 }
 
 public class ChunkerGuidance
@@ -186,6 +201,45 @@ public class ChunkerGuidance
     public Guid DocumentId { get; set; }
     [Required] public string Guidance { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Durable, text-free chunking job. Page numbers and safe status evidence only;
+/// chunk text stays in Chunks and is never copied into the job record.
+/// </summary>
+public class ChunkJob
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid WorkspaceId { get; set; }
+    public Guid DocumentId { get; set; }
+    public Document? Document { get; set; }
+    [Required, MaxLength(16)] public string Status { get; set; } = "queued";
+    public string PagesJson { get; set; } = "[]";
+    public string CompletedPagesJson { get; set; } = "[]";
+    public string FailedPagesJson { get; set; } = "[]";
+    public string SkippedPagesJson { get; set; } = "[]";
+    [Required, MaxLength(4000)] public string Guidance { get; set; } = "";
+    public int BatchSize { get; set; } = 2;
+    public int MaxTokens { get; set; } = 400;
+    public int BatchTimeoutSeconds { get; set; } = 300;
+    public int MaxRetries { get; set; } = 1;
+    [Required, MaxLength(16)] public string FailureMode { get; set; } = "continue";
+    public int TotalBatches { get; set; }
+    public int CompletedBatches { get; set; }
+    public int? CurrentBatchStart { get; set; }
+    public int? CurrentBatchEnd { get; set; }
+    [MaxLength(64)] public string? ErrorCode { get; set; }
+    public bool PauseRequested { get; set; }
+    public bool CancelRequested { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public Guid? RetryOfJobId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public DateTime? LastHeartbeatAt { get; set; }
+    [MaxLength(128)] public string? LeaseOwner { get; set; }
+    public DateTime? LeaseUntil { get; set; }
+    public int Revision { get; set; } = 1;
 }
 
 /// <summary>Durable filesystem cleanup after the database deletion commits. No FK to deleted documents.</summary>
@@ -208,6 +262,19 @@ public class AnalysisRun
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
+/// <summary>Clinician review flag; deliberately no case text or generated answer.</summary>
+public class AnswerFlag
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid WorkspaceId { get; set; }
+    public Guid AnalysisRunId { get; set; }
+    public int? ConfigVersion { get; set; }
+    [Required, MaxLength(32)] public string Reason { get; set; } = "";
+    [MaxLength(1000)] public string? Note { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 public class TestRun
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -216,7 +283,9 @@ public class TestRun
     public Guid? ConfigId { get; set; }
     public int ConfigVersion { get; set; }
     public string ConfigHash { get; set; } = "";
+    public int CaseRevision { get; set; } // Zero means legacy, untrusted evidence.
     [Required, MaxLength(16)] public string Status { get; set; } = "running"; // running | passed | failed
+    [MaxLength(32)] public string? FailureCode { get; set; }
     public string? Diff { get; set; } // human-readable diff, never case text or prompts
     public double DurationMilliseconds { get; set; }
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;

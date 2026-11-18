@@ -14,7 +14,7 @@ vi.mock("@/providers/AuthProvider", () => ({
 
 const initialConfig = {
   prompts: { plan: "Plan {case} {n}", answer: "Answer {problem} {patient} {k} {context}", rewrite: "Rewrite {q}" },
-  retrieval: { minRerank: 0.3, topK: 8, candidates: 45, queriesPerProblem: 3, maxChunks: 12, futureRetrieval: true },
+  retrieval: { minRerank: 0.3, topK: 8, candidates: 45, queriesPerProblem: 3, maxChunks: 12, hydeEnabled: false, futureRetrieval: true },
   chunking: { maxTokens: 500, hybrid: true, futureChunking: [1, 2] },
   safety: { verifierLocked: true, minQuoteMatch: 0.92, futureCheck: true },
   future: { nested: { untouched: "keep me" } },

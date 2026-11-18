@@ -35,7 +35,8 @@ public sealed record PipelineAnalyzeRequest(
     [property: JsonPropertyName("retrieveUrl")] string RetrieveUrl,
     [property: JsonPropertyName("conversationId")] string? ConversationId,
     [property: JsonPropertyName("drugCatalog")] JsonElement DrugCatalog,
-    [property: JsonPropertyName("catalogRevision")] int CatalogRevision);
+    [property: JsonPropertyName("catalogRevision")] int CatalogRevision,
+    [property: JsonPropertyName("testRunDiagnostics")] bool TestRunDiagnostics = false);
 
 public sealed record PipelineRulePreviewRequest(
     [property: JsonPropertyName("text")] string Text,
@@ -76,6 +77,8 @@ public sealed class PipelineClient : IPipelineClient, IRulePreviewClient
         _timeout = TimeSpan.FromSeconds(
             Math.Max(30, configuration.GetValue<int>("Pipeline:TimeoutSeconds", 240)));
         _http.Timeout = Timeout.InfiniteTimeSpan;
+        if (string.IsNullOrWhiteSpace(configuration["Pipeline:ApiKey"]))
+            _log?.LogWarning("Pipeline:ApiKey is not configured; authenticated pipeline readiness and analysis calls will fail until it matches PIPELINE_SERVICE_KEY.");
     }
 
     private HttpRequestMessage CreateRequest<T>(HttpMethod method, string path,
@@ -217,7 +220,7 @@ public sealed class PipelineClient : IPipelineClient, IRulePreviewClient
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
         {
             if (caller.IsCancellationRequested) throw new OperationCanceledException(caller);
-            throw new DependencyUnavailableException("pipeline");
+            throw new DependencyUnavailableException("pipeline", failureCode: exception is OperationCanceledException ? "timeout" : "pipeline_unavailable");
         }
     }
 
@@ -227,14 +230,14 @@ public sealed class PipelineClient : IPipelineClient, IRulePreviewClient
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
         {
             if (caller.IsCancellationRequested) throw new OperationCanceledException(caller);
-            throw new DependencyUnavailableException("pipeline");
+            throw new DependencyUnavailableException("pipeline", failureCode: exception is OperationCanceledException ? "timeout" : "pipeline_unavailable");
         }
     }
 
     private static async Task<string?> ReadLineAsync(StreamReader reader, CancellationToken token, CancellationToken caller)
     {
         try { return await HttpResponseDeadline.AwaitBodyAsync(reader.ReadLineAsync(token).AsTask(), token); }
-        catch (OperationCanceledException) when (!caller.IsCancellationRequested) { throw new DependencyUnavailableException("pipeline"); }
+        catch (OperationCanceledException) when (!caller.IsCancellationRequested) { throw new DependencyUnavailableException("pipeline", failureCode: "timeout"); }
         catch (IOException) { throw new DependencyUnavailableException("pipeline"); }
     }
 
@@ -256,7 +259,9 @@ public sealed class PipelineClient : IPipelineClient, IRulePreviewClient
                 catch (Exception exception) when (exception is JsonException or DependencyUnavailableException) { }
             }
             var seconds = response.Headers.RetryAfter?.Delta?.TotalSeconds ?? 30;
-            throw new DependencyUnavailableException(service, (int)Math.Clamp(Math.Ceiling(seconds), 1, 300));
+            var code = response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden ? "auth"
+                : response.StatusCode is System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.GatewayTimeout ? "timeout" : "pipeline_unavailable";
+            throw new DependencyUnavailableException(service, (int)Math.Clamp(Math.Ceiling(seconds), 1, 300), failureCode: code);
         }
         response.EnsureSuccessStatusCode();
     }

@@ -25,7 +25,7 @@ public class ChunkReviewController : ControllerBase
         c.Id, c.WorkspaceId, c.DocumentId, c.Page, c.PageStart, c.PageEnd,
         c.Section, c.SectionHierarchy, c.Year, c.Strength, c.Certainty,
         c.Text, c.Status, c.Confidence, c.Metadata, c.CreatedAt, c.ReviewedBy, c.ReviewedAt,
-        c.Verbatim, c.Type, c.ValidationError
+        c.Verbatim, c.Type, c.ValidationError, c.ReReviewRequired
     };
 
     private async Task<IActionResult> SaveReviewAsync(Document document, object response)
@@ -84,6 +84,7 @@ public class ChunkReviewController : ControllerBase
         }
         c.ReviewedAt = DateTime.UtcNow;
         c.ReviewedBy = actor;
+        c.ReReviewRequired = false;
         return await SaveReviewAsync(doc, View(c));
     }
 
@@ -103,7 +104,7 @@ public class ChunkReviewController : ControllerBase
         var actor = await _currentUser.GetUserIdAsync();
         if (actor == Guid.Empty) return Unauthorized();
         var now = DateTime.UtcNow;
-        foreach (var c in list) { c.Status = "accepted"; c.Embedding = null; c.EmbeddingModel = null; c.LegacyEmbeddingJson = null; c.ReviewedAt = now; c.ReviewedBy = actor; }
+        foreach (var c in list) { c.Status = "accepted"; c.Embedding = null; c.EmbeddingModel = null; c.LegacyEmbeddingJson = null; c.ReviewedAt = now; c.ReviewedBy = actor; c.ReReviewRequired = false; }
         if (list.Count == 0) return Ok(new { accepted = 0 });
         return await SaveReviewAsync(doc, new { accepted = list.Count });
     }

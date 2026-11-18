@@ -75,6 +75,36 @@ public class SqlRetrievalTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Raw_chunk_changes_bump_the_shared_generation_and_reload_another_cache()
+    {
+        await using var store = await RetrievalSqlStore.CreateAsync();
+        Guid chunkId;
+        long before;
+        await using (var seed = store.Context())
+        {
+            var chunk = Chunk(store.Document, "Original exactterm", x: 0, y: 1);
+            seed.Chunks.Add(chunk); await seed.SaveChangesAsync(); chunkId = chunk.Id;
+            before = await seed.Workspaces.Where(w => w.Id == store.Workspace.Id).Select(w => w.SearchGeneration).SingleAsync();
+        }
+        using var cache = new ChunkVectorCache();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(store.ConnectionString).Options;
+        await using var reader = new AppDbContext(options, cache);
+        var oldIndex = await cache.GetAsync(store.Workspace.Id, before, _ => Task.FromResult(new ChunkSearchIndex([
+            new(chunkId, "Original exactterm", null, EmbeddingTestData.Model, EmbeddingVectors.EncodeNormalized([0, 1]))])));
+        await using (var writer = store.Context())
+            await writer.Database.ExecuteSqlInterpolatedAsync($"UPDATE [Chunks] SET [Text] = {"Rotated exactterm"} WHERE [Id] = {chunkId}");
+        long after;
+        await using (var observer = store.Context())
+            after = await observer.Workspaces.Where(w => w.Id == store.Workspace.Id).Select(w => w.SearchGeneration).SingleAsync();
+        Assert.Equal(before + 1, after);
+        var newIndex = await cache.GetAsync(store.Workspace.Id, after, _ => Task.FromResult(new ChunkSearchIndex([
+            new(chunkId, "Rotated exactterm", null, EmbeddingTestData.Model, EmbeddingVectors.EncodeNormalized([0, 1]))])));
+        Assert.NotSame(oldIndex, newIndex);
+        Assert.Contains(newIndex.Lexical.Search("Rotated", 30), hit => hit.Id == chunkId);
+        Assert.DoesNotContain(oldIndex.Lexical.Search("Rotated", 30), hit => hit.Id == chunkId);
+    }
+
+    [Fact]
     public async Task Warm_SQL_retrieval_projects_current_source_metadata_not_a_tracked_document_or_vector_corpus()
     {
         await using var store = await RetrievalSqlStore.CreateAsync();
@@ -105,13 +135,11 @@ public class SqlRetrievalTests(ITestOutputHelper output)
         Assert.Equal(target.Id, Assert.Single(Ids(await controller.DoRetrieve(store.Workspace.Id, "source"))));
         await using (var update = store.Context())
             await update.Database.ExecuteSqlInterpolatedAsync($"UPDATE [Chunks] SET [EmbeddingModel] = {EmbeddingTestData.Model + " "} WHERE [Id] = {target.Id}");
-        // SQL's predicate still considers these equal; the fresh, shortlisted
-        // scalar label must be checked ordinally before sending passages.
+        // SQL's predicate still considers these equal; the durable generation
+        // invalidates the cache and the fresh ordinal label check fails closed
+        // instead of serving the old valid-looking snapshot.
         Assert.Equal(1, await db.Chunks.CountAsync(c => c.Id == target.Id && c.EmbeddingModel == EmbeddingTestData.Model));
         recorder.Commands.Clear();
-        Assert.Empty(Ids(await controller.DoRetrieve(store.Workspace.Id, "source")));
-        Assert.DoesNotContain(recorder.Commands, c => c.Select.Contains("[c].[Embedding]", StringComparison.Ordinal));
-        store.Cache.Invalidate(store.Workspace.Id);
         await Assert.ThrowsAsync<EmbeddingModelMismatchException>(() => controller.DoRetrieve(store.Workspace.Id, "source"));
     }
 
@@ -143,9 +171,14 @@ public class SqlRetrievalTests(ITestOutputHelper output)
     public async Task A_cached_FullText_index_removed_before_query_uses_Bm25_and_rechecks_capability_next_time()
     {
         await using var store = await RetrievalSqlStore.CreateAsync(); var target = Chunk(store.Document, "Retained quotation", "cystatin", x: 0, y: 1);
-        await using (var seed = store.Context()) { seed.Chunks.Add(target); await seed.SaveChangesAsync(); }
+        long generation;
+        await using (var seed = store.Context())
+        {
+            seed.Chunks.Add(target); await seed.SaveChangesAsync();
+            generation = await seed.Workspaces.Where(w => w.Id == store.Workspace.Id).Select(w => w.SearchGeneration).SingleAsync();
+        }
         // Represents a Full-Text index dropped after this immutable snapshot was loaded.
-        await store.Cache.GetAsync(store.Workspace.Id, _ => Task.FromResult(new ChunkSearchIndex([
+        await store.Cache.GetAsync(store.Workspace.Id, generation, _ => Task.FromResult(new ChunkSearchIndex([
             new(target.Id, target.Text, target.Section, target.EmbeddingModel, target.Embedding!)], fullTextAvailable: true)));
         var recorder = new SqlQueryRecorder(); await using var db = store.Context(recorder);
         const string query = "cystatin'); DROP TABLE [dbo].[Chunks];--";
@@ -164,8 +197,13 @@ public class SqlRetrievalTests(ITestOutputHelper output)
     public async Task Unexpected_SQL_errors_are_not_silently_converted_to_search_results_or_exposed_to_the_callback()
     {
         await using var store = await RetrievalSqlStore.CreateAsync(); var target = Chunk(store.Document);
-        await using (var seed = store.Context()) { seed.Chunks.Add(target); await seed.SaveChangesAsync(); }
-        await store.Cache.GetAsync(store.Workspace.Id, _ => Task.FromResult(new ChunkSearchIndex([
+        long generation;
+        await using (var seed = store.Context())
+        {
+            seed.Chunks.Add(target); await seed.SaveChangesAsync();
+            generation = await seed.Workspaces.Where(w => w.Id == store.Workspace.Id).Select(w => w.SearchGeneration).SingleAsync();
+        }
+        await store.Cache.GetAsync(store.Workspace.Id, generation, _ => Task.FromResult(new ChunkSearchIndex([
             new(target.Id, target.Text, target.Section, target.EmbeddingModel, target.Embedding!)], fullTextAvailable: true)));
         var recorder = new SqlQueryRecorder { BeforeRead = command =>
         {
@@ -287,6 +325,7 @@ internal sealed class RetrievalSqlStore : IAsyncDisposable
         MultipleActiveResultSets = true
     }.ConnectionString;
     public ChunkVectorCache Cache { get; } = new();
+    public string ConnectionString => _connectionString;
     public User Owner { get; } = new() { FirebaseUid = $"retrieval-test-{Guid.NewGuid():N}", Email = "synthetic@example.invalid" };
     public Workspace Workspace { get; }
     public Document Document { get; }

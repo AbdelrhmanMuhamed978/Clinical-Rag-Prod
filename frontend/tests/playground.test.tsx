@@ -6,6 +6,8 @@ import PlaygroundPage from "@/app/(app)/w/[workspaceId]/playground/page";
 import { ApiError } from "@/lib/api";
 import type { ServerSentEvent } from "@/lib/sse";
 import { deferred, pipelineResult, progressEvent } from "./analysis-fixtures";
+import { seriousViolations } from "./axe";
+import { control, tabTo } from "./keyboard";
 
 const mocks = vi.hoisted(() => ({ postStream: vi.fn(), workspaceId: "workspace-1", uid: "playground-user", toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/api", () => ({ postStream: mocks.postStream, ApiError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
@@ -40,6 +42,25 @@ beforeEach(() => {
 afterEach(() => { clients.splice(0).forEach(client => client.clear()); vi.useRealTimers(); });
 
 describe("verified-only Playground conversation", () => {
+  it("has no serious or critical structural axe issues in a rendered result", async () => {
+    const { user, container } = mount(); await send(user); await screen.findByText(subtitle);
+    expect(await seriousViolations(container, "playground")).toEqual([]);
+  });
+
+  it("completes the question flow from the keyboard alone, including result exports", async () => {
+    const { user } = mount();
+    const question = await tabTo(user, element => element.id === "clinical-question", "the clinical question");
+    await user.keyboard("Synthetic keyboard question?");
+    expect((question as HTMLTextAreaElement).value).toBe("Synthetic keyboard question?");
+    await user.keyboard("{Enter}");
+    await screen.findByText(subtitle);
+    expect(mocks.postStream).toHaveBeenCalledOnce();
+    const markdown = await tabTo(user, control("Export Markdown", "BUTTON"), "Export Markdown");
+    expect(markdown.hasAttribute("disabled")).toBe(false);
+    const pdf = await tabTo(user, control("Export PDF", "BUTTON"), "Export PDF");
+    expect(pdf.hasAttribute("disabled")).toBe(false);
+  });
+
   it("shows the verified subtitle only after a response with verified items", async () => {
     const { user } = mount(); expect(screen.queryByText(subtitle)).toBeNull();
     await send(user); await screen.findByText(subtitle);

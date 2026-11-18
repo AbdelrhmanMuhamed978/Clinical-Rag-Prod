@@ -1,4 +1,4 @@
-import asset from "../../clinical-vocabulary.json";
+import asset from "../../python-backend/clinical-vocabulary.json";
 import type { DrugCatalogSnapshot, Rule, RulePreview, RuleVocabulary } from "@/lib/types";
 
 // Synthetic fixtures only; thresholds and example.org wording are not clinical evidence.

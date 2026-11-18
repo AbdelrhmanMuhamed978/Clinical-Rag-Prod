@@ -1,8 +1,10 @@
 # Prepare genuine local acceptance
 
+> **Current status — 16 November 2026 re-run:** after the T4 runtime was reconnected, `/ready` returned **200** with the real Qwen model, PubMedBERT embeddings and T4 GPU. Synthetic parse, non-contiguous chunking, review, embedding, question, full case, flagging, draft test and publication of v5 passed. Hosted CI is still red; viewer/editor limits and named-clinician approval were not run. See [acceptance-rerun-2026-11-16.md](acceptance-rerun-2026-11-16.md).
+
 The audit uses the production frontend (`http://localhost:3000`), Firebase-authenticated API (`http://localhost:5100`), dedicated SQL LocalDB database and Python pipeline (`http://127.0.0.1:8100`). After the user restarted the updated launcher, all three services and the supplied public API tunnel returned HTTP 200. Initial `/ready` was 503 before model registration; after genuine startup/registration, independent API `/ready` returned **200**, `ready: true`, with database, Colab and pipeline checks ready. Health alone is not model or clinical readiness.
 
-Use only designated test accounts and synthetic/de-identified fixtures. This is not a production deployment or clinical validation. In particular, the outstanding unrestricted CORS and dependency advisories are not resolved by opening a tunnel.
+Use only designated test accounts and synthetic/de-identified fixtures. This is not a production deployment or clinical validation. Opening a tunnel does not resolve security configuration: CORS is now a named `Cors:AllowedOrigins` allowlist, but dependency advisories still require review.
 
 ## 0. Use the corrected notebook and source archive
 
@@ -89,11 +91,26 @@ The launcher/state are temporary local audit tools, not committed deployment scr
    | `COLAB_REGISTRATION_SECRET` | Exactly the secret entered into the local launcher |
    | `ASPNET_BACKEND_URL` | Computer's public HTTPS API tunnel origin from step 3 |
 
-4. Upload the reviewed **source-only** ZIP from step 0 when cell 2 asks. It contains no `.env*`, appsettings credentials, key rings, uploads, databases, build outputs, dependency directories, caches or patient/evaluation questions. Shared JSON and synthetic fixtures are explicitly selected; `requirements.txt` is at the archive root.
+4. Upload the reviewed **source-only** ZIP from step 0 when cell 2 asks. It contains no `.env*`, appsettings credentials, key rings, uploads, databases, build outputs, dependency directories, caches or patient/evaluation questions. Shared JSON and synthetic fixtures are explicitly selected; the local service requirements are at `python-backend/requirements.txt` in the archive.
 5. Run the six cells **in order** in a fresh GPU runtime: tunnel binary → source upload → validated extraction/Python 3.12 package install → offline tests → real model server → readiness/tunnel/registration. Wait for each cell to stop running and its completion marker. **`UPLOAD COMPLETE` is not `INSTALL COMPLETE`**. Stop after errors/cancellation; never run all cells blindly. Model downloads/initialization may take several minutes.
 6. Cell 4 must print **`OFFLINE TESTS PASSED`**. Cell 5 only starts loading models. Cell 6 must print **`COLAB REGISTERED`** followed by **`STARTUP COMPLETE`** after real model readiness and successful registration. Keep the subprocesses/runtime running, then independently verify API readiness below. All these completion markers were observed, and independent local `/ready` returned 200 with `Qwen/Qwen3-4B-Instruct-2507`, `pritamdeka/S-PubMedBert-MS-MARCO`, 768 embedding dimensions, CUDA and Tesla T4. If Chrome's debugging banner is dismissed, the extension disconnects but the notebook may continue: re-share the existing tab rather than rerunning cells or treating a detached browser check as Colab failure.
 
 `MONGODB_URI` is **not required** for this web acceptance test. Web retrieval uses SQL through ASP.NET, not the legacy Colab Mongo route. Do not configure ignored static Colab URL/key fallbacks in appsettings or the frontend.
+
+### Notebook restart / URL rotation procedure
+
+When Colab stops, restarts, or its tunnel URL changes:
+
+1. Do **not** restart the ASP.NET API. While Colab is down, `/ready` must return **503** with `Retry-After: 30`; `/health` stays live. The API obtains the Colab URL/key from the database on each logical call and keeps no process-local URL/key cache.
+2. In Colab, stop the old runtime/subprocesses and reconnect or restart the runtime. Do not run the notebook against the old tunnel.
+3. Reopen `colab/clinical_rag_colab.ipynb` and rerun the six cells in order on the new runtime: tunnel, source upload, validated install, offline tests, model server, readiness/tunnel/registration. Wait for `OFFLINE TESTS PASSED`, then `COLAB REGISTERED` and `STARTUP COMPLETE`.
+4. Startup registration (`heartbeat=false`) writes the new URL, protected key and 32-character instance ID and increments the connection revision. Reusing the same URL/key/instance sends a heartbeat only. A different instance with `heartbeat=true` is rejected as superseded; old heartbeats cannot restore the previous connection.
+5. Independently verify recovery without restarting the API:
+   ```powershell
+   Invoke-WebRequest http://localhost:5100/ready -UseBasicParsing
+   ```
+   Expect **200**, `ready: true`, and refreshed model/embedding/GPU metadata. A verified workspace user can check `/api/operations/colab`; a platform admin can check `/api/admin/colab-settings`. The connection revision should advance after rotation.
+6. If `/ready` stays 503, check the sanitized dependency summary, the Colab registration response category, the admin heartbeat-stale flag and whether **manual override** is enabled. A manual override blocks notebook registration; clear it intentionally before rotating. Never paste a tunnel URL, API key, registration secret or bearer token into a report or chat.
 
 ## 6. Confirm it is actually live
 

@@ -10,6 +10,8 @@ import { useAuth } from "@/providers/AuthProvider";
 import { WorkspaceMemberRoles } from "@/components/rules/workspace-member-roles";
 import { WorkspaceAdministration } from "@/components/workspace-administration";
 import { ColabSettings } from "@/components/operations/colab-settings";
+import { GovernanceFlags } from "@/components/governance-flags";
+import { GovernancePolicy } from "@/components/governance-policy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +52,8 @@ function SettingsWorkspace({ workspaceId, userId }: { workspaceId: string; userI
           } finally { if (exit.isCurrent()) exit.finish(); }
         }} />
       <WorkspaceAdministration workspaceId={workspaceId} userId={userId} role={access.isError ? undefined : access.data?.role} />
+      <GovernancePolicy workspaceId={workspaceId} userId={userId} canEdit={!access.isError && access.data?.role === "owner"} />
+      <GovernanceFlags workspaceId={workspaceId} userId={userId} canView={!access.isError && access.data?.role === "owner"} />
     </div>
   );
 }

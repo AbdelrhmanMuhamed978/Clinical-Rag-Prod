@@ -41,6 +41,26 @@ public class RuleLifecycleTests
     }
 
     [Fact]
+    public async Task Approval_requires_a_named_clinician_reviewer_and_persists_the_source_url()
+    {
+        await using var db = new AppDbContext(Options());
+        var (owner, workspace) = await SeedAsync(db);
+        var rule = await new RuleService(db).CreateAsync(workspace.Id, RuleTestDefinitions.Create(), owner.Id);
+
+        var missing = await Assert.ThrowsAsync<RuleLifecycleException>(() =>
+            new RuleService(db).TransitionAsync(workspace.Id, rule.Id, "approve", 1, Guid.NewGuid()));
+        Assert.Equal(400, missing.StatusCode);
+        Assert.Null(rule.ReviewerName);
+        Assert.Null(rule.ApprovedSourceUrl);
+
+        var approved = await new RuleService(db).TransitionAsync(workspace.Id, rule.Id, "approve", 1, owner.Id);
+        Assert.Equal("approved", approved!.Status);
+        Assert.False(string.IsNullOrWhiteSpace(approved.ReviewerName));
+        Assert.True(ClinicalText.HttpSourceUrl(approved.ApprovedSourceUrl!));
+        Assert.NotNull(approved.ReviewedAt);
+    }
+
+    [Fact]
     public async Task Actual_edits_require_the_saved_revision_but_null_empty_and_exact_noops_preserve_review()
     {
         await using var db = new AppDbContext(Options());

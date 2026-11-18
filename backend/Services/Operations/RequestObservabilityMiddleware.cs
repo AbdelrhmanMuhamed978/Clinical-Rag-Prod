@@ -21,12 +21,14 @@ public static class ServiceSecrets
         && actual.Length <= 4096 && CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(expected)), SHA256.HashData(Encoding.UTF8.GetBytes(actual)));
 }
 
-public sealed class DependencyUnavailableException(string service, int retryAfterSeconds = 30, bool retryable = false)
+public sealed class DependencyUnavailableException(string service, int retryAfterSeconds = 30, bool retryable = false, string failureCode = "pipeline_unavailable")
     : HttpRequestException($"The {service} service is temporarily unavailable.", null, System.Net.HttpStatusCode.ServiceUnavailable)
 {
     public string Service { get; } = service;
     public int RetryAfterSeconds { get; } = Math.Clamp(retryAfterSeconds, 1, 300);
     public bool Retryable { get; } = retryable;
+    // Fixed diagnostic classification only; no upstream body or authentication material.
+    public string FailureCode { get; } = failureCode is "auth" or "timeout" ? failureCode : "pipeline_unavailable";
     public string PublicMessage => Service == "colab" ? "The Colab model service is offline or not ready. Retry shortly, or ask an administrator to check its connection."
         : Service == "database" ? "The backend database is temporarily unavailable. Retry shortly."
         : "The verified pipeline service is temporarily unavailable. Retry shortly; no unverified answer was returned.";

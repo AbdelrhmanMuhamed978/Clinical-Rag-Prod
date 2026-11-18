@@ -69,7 +69,7 @@ public class ConfigController : ControllerBase
             return result == null ? NotFound() : Ok(result);
         }
         catch (ConfigValidationException error) { return BadRequest(new { error = "Invalid configuration.", errors = error.Errors }); }
-        catch (ConfigLifecycleException error) { return Conflict(new { error = error.Message }); }
+        catch (ConfigLifecycleException error) { return Conflict(new { error = error.Message, code = error.Code }); }
         catch (DbUpdateConcurrencyException) { return Conflict(new { error = "Configuration changed. Refresh versions and try again." }); }
         catch (DbUpdateException) { return Conflict(new { error = "Configuration changed. Refresh versions and try again." }); }
     }

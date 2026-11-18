@@ -1,0 +1,32 @@
+{
+  "final-kidney": {
+    "label": "Local synthetic acceptance fixture generator - NOT a medical society 2026 (FINAL)",
+    "section": "3. Kidney-function review - synthetic test protocol", "page": "3", "strength": "weak", "draft": false,
+    "text": "Artifact status: FINAL. Year: 2026.\nPage 3 of 5. Marker: SELECTED-PAGE-THREE\nLocally authored synthetic acceptance artifact; not a medical society guideline or clinical evidence.\n3. Kidney-function review - synthetic test protocol\nAn isolated creatinine value does not establish acute kidney injury. The dummy kidney-function review\nmarker is GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.\nBaseline measurements, changes over time and relevant clinical assessment are not supplied by this\ndocument. The synthetic case below must not be used as real patient data or to certify clinical\nperformance."
+  },
+  "draft-kidney": {
+    "label": "Local synthetic acceptance fixture generator - NOT a medical society 2026 (DRAFT)",
+    "section": "3. Kidney-function review - synthetic test protocol", "page": "3", "strength": "weak", "draft": true,
+    "text": "Artifact status: DRAFT. Year: 2026.\nPage 3 of 5. Marker: SELECTED-PAGE-THREE\nLocally authored synthetic acceptance artifact; not a medical society guideline or clinical evidence.\n3. Kidney-function review - synthetic test protocol\nAn isolated creatinine value does not establish acute kidney injury. The dummy kidney-function review\nmarker is PENDING-GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing\ninstruction.\nBaseline measurements, changes over time and relevant clinical assessment are not supplied by this\ndocument. The synthetic case below must not be used as real patient data or to certify clinical\nperformance."
+  },
+  "final-pressure": {
+    "label": "Local synthetic acceptance fixture generator - NOT a medical society 2026 (FINAL)",
+    "section": "1. Low-pressure review - synthetic test protocol", "page": "1", "strength": "weak", "draft": false,
+    "text": "Artifact status: FINAL. Year: 2026.\nPage 1 of 5. Marker: SELECTED-PAGE-ONE\nLocally authored synthetic acceptance artifact; not a medical society guideline or clinical evidence.\n1. Low-pressure review - synthetic test protocol\nAn isolated low systolic blood pressure does not establish shock. The dummy low-pressure review\nmarker is BLUE. This label is arbitrary integration-test data, not a diagnostic or treatment threshold.\nFor this fixture, a medication mention and a low-pressure value may be used to test a manually created\nreview rule. This must not automatically stop any medicine. Rule approval, enablement and source\nstatus are separate application controls."
+  },
+  "draft-pressure": {
+    "label": "Local synthetic acceptance fixture generator - NOT a medical society 2026 (DRAFT)",
+    "section": "1. Low-pressure review - synthetic test protocol", "page": "1", "strength": "weak", "draft": true,
+    "text": "Artifact status: DRAFT. Year: 2026.\nPage 1 of 5. Marker: SELECTED-PAGE-ONE\nLocally authored synthetic acceptance artifact; not a medical society guideline or clinical evidence.\n1. Low-pressure review - synthetic test protocol\nAn isolated low systolic blood pressure does not establish shock. The dummy low-pressure review\nmarker is PENDING-BLUE. This label is arbitrary integration-test data, not a diagnostic or treatment\nthreshold.\nFor this fixture, a medication mention and a low-pressure value may be used to test a manually created\nreview rule. This must not automatically stop any medicine. Rule approval, enablement and source\nstatus are separate application controls."
+  },
+  "final-medication": {
+    "label": "Local synthetic acceptance fixture generator - NOT a medical society 2026 (FINAL)",
+    "section": "5. Medication review - synthetic test protocol", "page": "5", "strength": "weak", "draft": false,
+    "text": "Artifact status: FINAL. Year: 2026.\nPage 5 of 5. Marker: SELECTED-PAGE-FIVE\nLocally authored synthetic acceptance artifact; not a medical society guideline or clinical evidence.\n5. Medication review - synthetic test protocol\nMedication mentions do not confirm current exposure, dose, timing or indication. The dummy\nmedication review marker is AMBER. This label is arbitrary integration-test data, not medication advice.\nReview the dummy medication list with a clinician rather than automatically stopping a medicine based\non this test protocol. Source quotations may establish exact text matches for an integration test; they do\nnot establish clinical correctness."
+  },
+  "draft-medication": {
+    "label": "Local synthetic acceptance fixture generator - NOT a medical society 2026 (DRAFT)",
+    "section": "5. Medication review - synthetic test protocol", "page": "5", "strength": "weak", "draft": true,
+    "text": "Artifact status: DRAFT. Year: 2026.\nPage 5 of 5. Marker: SELECTED-PAGE-FIVE\nLocally authored synthetic acceptance artifact; not a medical society guideline or clinical evidence.\n5. Medication review - synthetic test protocol\nMedication mentions do not confirm current exposure, dose, timing or indication. The dummy\nmedication review marker is PENDING-AMBER. This label is arbitrary integration-test data, not\nmedication advice.\nReview the dummy medication list with a clinician rather than automatically stopping a medicine based\non this test protocol. Source quotations may establish exact text matches for an integration test; they do\nnot establish clinical correctness."
+  }
+}

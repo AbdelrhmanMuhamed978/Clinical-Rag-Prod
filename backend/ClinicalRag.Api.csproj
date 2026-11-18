@@ -19,16 +19,18 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="../config/config.schema.json" LogicalName="ClinicalRag.Config.schema.json" />
-    <EmbeddedResource Include="../config/default_prompts.json" LogicalName="ClinicalRag.Config.default_prompts.json" />
-    <EmbeddedResource Include="../config/retrieval-limits.json" LogicalName="ClinicalRag.Config.retrieval-limits.json" />
-    <EmbeddedResource Include="../clinical-vocabulary.json" LogicalName="ClinicalRag.Rules.vocabulary.json" />
-    <EmbeddedResource Include="../clinical-text.json" LogicalName="ClinicalRag.Rules.text.json" />
-    <EmbeddedResource Include="../rules.json" LogicalName="ClinicalRag.Rules.rules.json" />
-    <EmbeddedResource Include="../drugs.json" LogicalName="ClinicalRag.Rules.drugs.json" />
+    <EmbeddedResource Include="../python-backend/config/config.schema.json" LogicalName="ClinicalRag.Config.schema.json" />
+    <EmbeddedResource Include="../python-backend/config/default_prompts.json" LogicalName="ClinicalRag.Config.default_prompts.json" />
+    <EmbeddedResource Include="../python-backend/config/retrieval-limits.json" LogicalName="ClinicalRag.Config.retrieval-limits.json" />
+    <EmbeddedResource Include="../python-backend/clinical-vocabulary.json" LogicalName="ClinicalRag.Rules.vocabulary.json" />
+    <EmbeddedResource Include="../python-backend/clinical-text.json" LogicalName="ClinicalRag.Rules.text.json" />
+    <EmbeddedResource Include="../python-backend/rules.json" LogicalName="ClinicalRag.Rules.rules.json" />
+    <EmbeddedResource Include="../python-backend/drugs.json" LogicalName="ClinicalRag.Rules.drugs.json" />
+    <EmbeddedResource Include="../python-backend/query-synonyms.json" LogicalName="ClinicalRag.Retrieval.query-synonyms" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,81 @@
+{
+    "generatedAtUtc":  "2026-11-16T08:59:36.5438698Z",
+    "server":  "localhost\\MSSQLSERVER2025",
+    "status":  "passed",
+    "databasesKept":  false,
+    "migration":  {
+                      "legacyBackupMilliseconds":  216.7,
+                      "scriptFirstRunMilliseconds":  1688.2,
+                      "archivePreserved":  true,
+                      "scriptReapplyMilliseconds":  126.4,
+                      "database":  "ClinicalRagRehearsalMigrated_353e37c692b348148e76eddb396b6124",
+                      "legacyRestoreCopyMilliseconds":  695.5,
+                      "legacySourceDatabase":  "ClinicalRagRehearsal_f7ec65ae92414f9199a067e9a3bd5cbd",
+                      "migrateToDocumentProcessingStateMilliseconds":  4751.6,
+                      "legacyColumnType":  "nvarchar",
+                      "correctReviewState":  true,
+                      "rows":  {
+                                   "emptyArchive":  1,
+                                   "acceptedChunks":  4,
+                                   "chunks":  4,
+                                   "malformedArchive":  1,
+                                   "binaryVectorsNull":  4,
+                                   "validArchive":  1,
+                                   "nullArchive":  1
+                               },
+                      "documents":  {
+                                        "indexedReturnsToReview":  {
+                                                                       "revision":  8,
+                                                                       "status":  "review"
+                                                                   },
+                                        "interruptedEmbeddingFails":  {
+                                                                          "revision":  10,
+                                                                          "status":  "failed"
+                                                                      }
+                                    },
+                      "searchGenerationTriggerCount":  1,
+                      "insertedLegacyChunks":  4
+                  },
+    "backupRestore":  {
+                          "restoredDocumentStatus":  "review",
+                          "backupFileRemoved":  false,
+                          "restoredValidArchive":  1,
+                          "restoreMilliseconds":  631.1,
+                          "matches":  true,
+                          "backupMilliseconds":  225.5,
+                          "restoredChunks":  4
+                      },
+    "fullText":  {
+                     "firstSetupMilliseconds":  342.3,
+                     "schemaMilliseconds":  1869.1,
+                     "populationMilliseconds":  1986.1,
+                     "fallbackTest":  "passed",
+                     "secondSetupMilliseconds":  101.7,
+                     "installed":  true,
+                     "exactTermQueries":  {
+                                              "anti-Xa measurement":  {
+                                                                          "expectedChunkMatched":  true,
+                                                                          "matches":  1
+                                                                      },
+                                              "cystatin monitoring":  {
+                                                                          "expectedChunkMatched":  true,
+                                                                          "matches":  1
+                                                                      },
+                                              "procalcitonin measurement":  {
+                                                                                "expectedChunkMatched":  true,
+                                                                                "matches":  1
+                                                                            }
+                                          },
+                     "database":  "ClinicalRagFullTextRehearsal_6017dedfd3504959ad8baf0adf739547",
+                     "populated":  true
+                 },
+    "colab":  {
+                  "result":  "passed",
+                  "note":  "Transport-level simulated restart; no live Colab runtime was restarted.",
+                  "test":  "ColabOperationsTests.Runtime_rotation_recovers_ready_and_operations_without_an_api_restart"
+              },
+    "reembedding":  {
+                        "result":  "passed",
+                        "test":  "MigrationTests.Rehearsal_legacy_json_embeddings_preserve_archive_return_to_review_and_reembed"
+                    }
+}

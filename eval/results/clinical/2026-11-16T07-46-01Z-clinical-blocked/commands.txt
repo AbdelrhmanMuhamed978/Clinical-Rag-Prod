@@ -1,0 +1,3 @@
+'C:\Users\abdom\AppData\Local\Programs\Python\Python313\python.exe' eval/run_clinical_eval.py --clinical-set eval/clinical/template.json --output-dir eval/results/clinical
+'C:\Users\abdom\AppData\Local\Programs\Python\Python313\python.exe' eval/run_eval.py --mode clinical --clinical-set eval/clinical/template.json --output-dir eval/results/clinical
+# EVAL_FIREBASE_TOKEN and EVAL_PIPELINE_KEY are supplied only through the environment; values are never recorded.

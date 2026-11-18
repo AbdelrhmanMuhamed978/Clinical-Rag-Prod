@@ -9,7 +9,8 @@ This upgrade changes vector storage and retrieval, not the verified Python pipel
    - Renames the old column to `LegacyEmbeddingJson`, retaining null, empty, malformed and valid JSON verbatim. It does **not** cast or search that archive.
    - Adds normalized float32 `varbinary(max)` storage, workspace model/dimension binding and document embedding progress/check constraints. Model columns use case-sensitive `Latin1_General_100_BIN2` collation.
    - Changes old `embedded` chunks to `accepted`, moves `indexed` documents back to review and releases interrupted embedding claims as failed operations. Source/review metadata is retained; indexing must be earned again by real embeddings.
-3. Deploy the matching backend and Colab files, including `config/retrieval-limits.json`. ASP.NET embeds that file as a resource; Colab reads it on import. Changing it requires rebuilding/redeploying ASP.NET and restarting Colab, not editing a published Workflow configuration.
+   - The later `SearchGenerationCoherence` migration adds the durable `Workspaces.SearchGeneration` counter and `TR_Chunks_SearchGeneration` trigger. Keep the trigger and the `UseSqlOutputClause(false)` EF configuration together; do not disable either to make an EF write pass.
+3. Deploy the matching backend and Colab files, including `python-backend/config/retrieval-limits.json`. ASP.NET embeds that file as a resource; Colab reads it on import. Changing it requires rebuilding/redeploying ASP.NET and restarting Colab, not editing a published Workflow configuration.
 4. Start the secured Colab server with matching `X-Colab-Key` credentials and the current tunnel URL. `/embed` must return `model`, exact `dimensions`, and one finite, nonzero vector per input. `/health` alone is not proof that embedding/reranking works. Validate a synthetic request with the actual encoder before resuming ingestion.
 5. Re-embed accepted guideline chunks through the existing editor-authorized endpoint below. A committed explicit re-embed clears that chunk's superseded archive. Do not delete archives in bulk or relabel old bytes to bypass model checks. Other archives/backups and physical database allocation are outside the reported vector-payload savings.
 6. Optionally configure Full-Text as described below. Confirm population with representative workspace-scoped exact-term queries before depending on its lexical results. Restart/refresh every API process, or wait for cache expiry, after installing/changing an index that was previously detected as unavailable.
@@ -22,6 +23,21 @@ dotnet ef migrations script --project backend/ClinicalRag.Api.csproj --startup-p
 ```
 
 **Rollback:** automatic downgrade refuses with SQL error 51000 while any new binary vector exists. Export/review new vectors and follow an approved restore/migration plan; do not remove the guard. If no binary vectors exist, downgrade restores the archived JSON column but does not manufacture `embedded`/`indexed` state.
+
+## Semantic retrieval upgrade (17 November 2026)
+
+The structure-aware retrieval change stores `kind`, `title`, `year`, `body`,
+`strength`, `certainty`, `population` and a stable recommendation ID in
+`Chunk.Metadata`. Graded recommendation-table rows are split into one atomic
+chunk per row, so those chunks have new boundaries and need fresh embeddings.
+Re-ingest and re-embed affected documents; legacy chunks remain searchable
+through deterministic kind/population fallbacks but do not have full metadata.
+
+`python-backend/query-synonyms.json` is embedded as an ASP.NET resource and
+included in the Colab archive. Changing it requires rebuilding/restarting the
+API, not re-embedding documents. `retrieval.hydeEnabled` is default `false`
+and may be enabled per workspace after measuring generation latency and answer
+quality. See [semantic ingestion and retrieval](semantic-ingestion-retrieval.md).
 
 ## Batches, progress and model changes
 
@@ -76,9 +92,11 @@ The singleton cache holds immutable guideline vectors and a BM25 inverted index,
 
 Application saves invalidate affected workspace entries on embed, accept/reject, text/section edits and delete, plus document/workspace changes. Explicit transactions defer invalidation until commit; rollback/disposal cannot publish stale invalidations. Cold loads use fixed lock stripes, and a commit racing a load forces a reload before publication. Entries above the configured budget are refused rather than retained without a bound.
 
-The budget limits **estimated retained cache data**, not total process memory, transient query allocations, decoded/contiguous cold-load copies or simultaneous cold loads. Size each API worker for those peaks. The 10,000 × 768 float32 vector payload alone is 30,720,000 bytes (29.297 MiB), before IDs, lexical postings, text and runtime/database overhead.
+Every retrieval reads the durable `Workspaces.SearchGeneration` primary-key value **before** serving a cached snapshot. The `SearchGenerationCoherence` migration adds the counter and a SQL Server `TR_Chunks_SearchGeneration` trigger that increments it atomically on every `Chunks` insert, update or delete. Another API instance and direct SQL writers therefore invalidate cache entries without sharing process memory. InMemory/SQLite test providers mirror the bump in `AppDbContext.SaveChanges`. A generation mismatch reloads; the cache entry carries the generation it was built from. The `Chunk` entity uses EF's `UseSqlOutputClause(false)` path because SQL Server rejects the default OUTPUT clause on a trigger-bearing table. Apply the reviewed script and keep the trigger enabled; do not replace it with a process-only invalidation scheme.
 
-There is **no distributed invalidation**. Changes in another API process or direct SQL can leave this process's ranking snapshot stale until expiry/refresh. The final untracked SQL projection rechecks current eligible IDs/model/dimensions and reads current citation/source metadata without returning vectors/archives, but new matches and current ranking are not guaranteed immediately. Coordinate refreshes after bulk maintenance/model changes; multi-instance strong-consistency/recall requirements need a separately designed shared generation/invalidation mechanism.
+The final untracked SQL projection still rechecks current eligible IDs/model/dimensions and reads current citation/source metadata without returning vectors/archives. The generation counter makes ranking-relevant chunk changes visible across processes; it does not make a cold load itself instantaneous.
+
+The budget limits **estimated retained cache data**, not total process memory, transient query allocations, decoded/contiguous cold-load copies or simultaneous cold loads. Size each API worker for those peaks. The 10,000 × 768 float32 vector payload alone is 30,720,000 bytes (29.297 MiB), before IDs, lexical postings, text and runtime/database overhead.
 
 ## Operational acceptance
 

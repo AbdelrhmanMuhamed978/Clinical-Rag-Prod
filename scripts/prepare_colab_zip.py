@@ -10,15 +10,34 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
-    "chunker.py", "clinical_text.py", "config.py", "facts.py", "operations.py", "pipeline.py",
-    "clinical-text.json", "clinical-vocabulary.json", "drugs.json", "rules.json",
-    "requirements.txt", "requirements-colab.txt",
-    "eval/run_eval.py", "eval/run_pipeline_eval.py", "eval/retrieval-fixture.json",
-    "colab/clinical_rag_colab.ipynb", "scripts/prepare_colab_zip.py",
-    "config/config.schema.json", "config/default_prompts.json", "config/retrieval-limits.json",
+    "conftest.py",
+    "python-backend/chunker.py", "python-backend/clinical_text.py",
+    "python-backend/evidence_text.py", "python-backend/config.py",
+    "python-backend/facts.py", "python-backend/operations.py", "python-backend/pipeline.py",
+    "python-backend/clinical-text.json", "python-backend/clinical-vocabulary.json",
+    "python-backend/drugs.json", "python-backend/rules.json",
+    "python-backend/query-synonyms.json",
+    "python-backend/requirements.txt", "requirements-colab.txt",
+    "eval/compare_baseline.py", "eval/run_eval.py", "eval/run_pipeline_eval.py",
+    "eval/run_clinical_eval.py", "eval/crag_offline_replay.py", "eval/retrieval-fixture.json",
+    "eval/clinical/README.md", "eval/clinical/loader.py", "eval/clinical/metrics.py",
+    "eval/clinical/template.json", "eval/clinical/synthetic-example.json",
+    "eval/clinical/real-who-crag-pending.json",
+    "eval/baselines/synthetic-retrieval.tolerances.json",
+    "eval/results/synthetic-retrieval-2026-11-16.json",
+    "colab/clinical_rag_colab.ipynb", "scripts/prepare_colab_zip.py", "scripts/prepare_ingestion_fixtures.py",
+    "scripts/loadtest/run_loadtest.py", "scripts/loadtest/k6-load.js",
+    "python-backend/config/config.schema.json", "python-backend/config/default_prompts.json",
+    "python-backend/config/retrieval-limits.json",
     "tests/fixtures/clinical-text-vectors.json",
+    "tests/replay/contexts.json", "tests/replay/a.json", "tests/replay/b.json", "tests/replay/c.json",
+    "tests/replay/postfix-4b.json",
+    "tests/replay/comparison.json",
+    ".gitignore",
+    ".github/scripts/check_ci_gate.py", ".github/workflows/ci.yml",
+    ".github/CODEOWNERS", ".github/PULL_REQUEST_TEMPLATE.md",
 )
-SOURCE_DIRECTORIES = ("colab", "pipeline_service", "tests")
+SOURCE_DIRECTORIES = ("colab", "python-backend/pipeline_service", "tests")
 SOURCE_SUFFIXES = {".py"}
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".venv", "node_modules", "bin", "obj"}
 
@@ -52,7 +71,7 @@ def build_archive(output: Path, root: Path = ROOT) -> dict:
             data = path.read_bytes()
             archive.writestr(name, data)
             entries.append({"path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
-        manifest = {"format": 1, "scope": "source-only; synthetic offline tests; no credentials or patient/evaluation inputs",
+        manifest = {"format": 1, "scope": "source plus synthetic offline fixtures/tests; no credentials or patient/evaluation inputs",
                     "python": "3.12", "files": entries}
         archive.writestr("colab-source-manifest.json", json.dumps(manifest, indent=2) + "\n")
     with zipfile.ZipFile(output) as archive:

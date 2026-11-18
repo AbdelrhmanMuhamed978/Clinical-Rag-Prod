@@ -14,9 +14,9 @@ public class HybridRetrievalTests
     private static AnalysisController Controller(DocumentTestStore store, ClinicalRag.Api.Data.AppDbContext db, FakeColabClient client) =>
         new(db, client, new ConfigService(db), new FakePipelineClient(), new FakeCurrentUser(store.User), store.Configuration, NullLogger<AnalysisController>.Instance);
 
-    private static async Task<Chunk> Indexed(DocumentTestStore store, Document document, string text = "Synthetic source text", string? section = null, float x = 1, float y = 0)
+    private static async Task<Chunk> Indexed(DocumentTestStore store, Document document, string text = "Synthetic source text", string? section = null, float x = 1, float y = 0, string? metadata = null)
     {
-        var chunk = new Chunk { WorkspaceId = document.WorkspaceId, DocumentId = document.Id, Text = text, Section = section, Status = "embedded", Page = 1 };
+        var chunk = new Chunk { WorkspaceId = document.WorkspaceId, DocumentId = document.Id, Text = text, Section = section, Status = "embedded", Page = 1, Metadata = metadata };
         EmbeddingTestData.Set(chunk, x, y);
         await using var db = store.CreateContext(); db.Chunks.Add(chunk); await db.SaveChangesAsync(); return chunk;
     }
@@ -92,6 +92,42 @@ public class HybridRetrievalTests
     }
 
     [Fact]
+    public async Task Chunks_marked_for_re_review_are_not_retrieved_even_if_status_and_vector_remain()
+    {
+        using var store = new DocumentTestStore(); var document = await store.AddDocumentAsync();
+        var flagged = await Indexed(store, document, "Synthetic source flagged for review");
+        await using var db = store.CreateContext();
+        await using (var update = store.CreateContext())
+            await update.Database.ExecuteSqlInterpolatedAsync($"UPDATE Chunks SET ReReviewRequired = 1 WHERE Id = {flagged.Id}");
+        var result = JsonSerializer.SerializeToElement(await Controller(store, db, Client()).DoRetrieve(store.Workspace.Id, "source"));
+        Assert.Empty(result.GetProperty("chunks").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Retrieval_includes_only_page_footnote_markers_for_quote_canonicalization()
+    {
+        using var store = new DocumentTestStore(); var document = await store.AddDocumentAsync();
+        await Indexed(store, document, "Synthetic source with a known marker.");
+        await using (var update = store.CreateContext())
+        {
+            var saved = await update.Documents.SingleAsync(item => item.Id == document.Id);
+            saved.FootnoteMarkers = System.Text.Json.JsonSerializer.Serialize(new object[]
+            {
+                new { page = 1, offset = 9, marker = "c", context = "Screening for synthetic source" },
+                new { page = 2, offset = 4, marker = "a", context = "Other page" }
+            });
+            await update.SaveChangesAsync();
+        }
+        await using var db = store.CreateContext();
+        var result = JsonSerializer.SerializeToElement(await Controller(store, db, Client()).DoRetrieve(store.Workspace.Id, "source"));
+        var markers = Assert.Single(result.GetProperty("chunks").EnumerateArray()).GetProperty("footnote_markers");
+        var marker = Assert.Single(markers.EnumerateArray());
+        Assert.Equal("c", marker.GetProperty("marker").GetString());
+        Assert.Equal(9, marker.GetProperty("offset").GetInt32());
+        Assert.Equal("Screening for synthetic source", marker.GetProperty("context").GetString());
+    }
+
+    [Fact]
     public async Task Configured_candidates_above_thirty_never_expand_the_rerank_batch()
     {
         using var store = new DocumentTestStore(); var document = await store.AddDocumentAsync();
@@ -102,6 +138,25 @@ public class HybridRetrievalTests
         client.RerankHandler = (_, texts) => { passages = texts.Count; return Task.FromResult(JsonSerializer.SerializeToElement(new { scores = texts.Select(_ => .9) })); };
         await Controller(store, db, client).DoRetrieve(store.Workspace.Id, "source");
         Assert.Equal(30, passages);
+    }
+
+    [Fact]
+    public async Task Broad_question_penalizes_a_narrow_exception_after_equal_cross_encoder_scores()
+    {
+        using var store = new DocumentTestStore(); var document = await store.AddDocumentAsync();
+        var general = await Indexed(store, document, "General adult ART guidance.",
+            metadata: "{\"kind\":\"recommendation\",\"population\":\"adults\"}");
+        var narrow = await Indexed(store, document, "TB-specific ART timing exception.",
+            metadata: "{\"kind\":\"recommendation\",\"population\":\"tuberculosis\"}");
+        await using var db = store.CreateContext(); var client = Client();
+        client.RerankHandler = (_, texts) => Task.FromResult(JsonSerializer.SerializeToElement(
+            new { scores = texts.Select(_ => 0.9) }));
+        var result = JsonSerializer.SerializeToElement(await Controller(store, db, client)
+            .DoRetrieve(store.Workspace.Id, "starting ART in adults with HIV"));
+        var ids = result.GetProperty("chunks").EnumerateArray()
+            .Select(chunk => chunk.GetProperty("chunk_id").GetString()).ToList();
+        Assert.Equal(general.Id.ToString(), ids.First());
+        Assert.Contains(narrow.Id.ToString(), ids);
     }
 
     [Fact]

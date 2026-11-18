@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / ".github" / "scripts" / "check_ci_gate.py"
-REQUIRED_JOBS = ("dotnet", "pytest", "frontend", "secret-scan")
+REQUIRED_JOBS = ("dotnet", "pytest", "frontend", "eval-gate", "secret-scan")
 
 
 def passing_results():
@@ -86,7 +86,7 @@ def test_workflow_has_independent_required_jobs_and_fail_closed_gate():
     assert "continue-on-error" not in workflow
     assert "|| true" not in workflow
     assert "if: ${{ always() }}" in jobs["ci-gate"]
-    assert "needs: [dotnet, pytest, frontend, secret-scan]" in jobs["ci-gate"]
+    assert "needs: [dotnet, pytest, frontend, eval-gate, secret-scan]" in jobs["ci-gate"]
     assert "CI_JOB_RESULTS: ${{ toJSON(needs) }}" in jobs["ci-gate"]
     assert "python .github/scripts/check_ci_gate.py" in jobs["ci-gate"]
     for name in REQUIRED_JOBS:
@@ -101,7 +101,7 @@ def test_workflow_runs_existing_unfiltered_checks_and_localdb():
     assert "dotnet build backend/ClinicalRag.Api.csproj --nologo" in jobs["dotnet"]
     assert "dotnet test backend.Tests/ClinicalRag.Tests.csproj --nologo" in jobs["dotnet"]
     assert "--filter" not in jobs["dotnet"]
-    assert "python -m pip install -r requirements.txt" in jobs["pytest"]
+    assert "python -m pip install -r python-backend/requirements.txt" in jobs["pytest"]
     assert "python -m pytest tests -q" in jobs["pytest"]
     assert 'node-version: "22"' in jobs["frontend"]
     assert "npm ci" in jobs["frontend"]
@@ -109,6 +109,11 @@ def test_workflow_runs_existing_unfiltered_checks_and_localdb():
     assert "npm test" in jobs["frontend"]
     assert "npm run build" in jobs["frontend"]
     assert jobs["frontend"].count("if: ${{ !cancelled() }}") == 3
+    assert "runs-on: windows-2025" in jobs["eval-gate"]
+    assert 'dotnet-version: "10.0.x"' in jobs["eval-gate"]
+    assert "python eval/run_eval.py --output eval/results/ci-eval-" in jobs["eval-gate"]
+    assert "python eval/compare_baseline.py" in jobs["eval-gate"]
+    assert "synthetic-retrieval.v1.json" in jobs["eval-gate"]
 
 
 def test_secret_scan_is_pinned_redacted_and_scans_full_history():
@@ -124,8 +129,8 @@ def test_secret_scan_is_pinned_redacted_and_scans_full_history():
 
 @pytest.mark.parametrize("path", [
     "backend/Services/PipelineResultPolicy.cs",
-    "pipeline.py",
-    "facts.py",
+    "python-backend/pipeline.py",
+    "python-backend/facts.py",
     "clinical-rag/pipeline.py",
     "clinical-rag/facts.py",
     "backend/Services/RuleService.cs",

@@ -26,6 +26,10 @@ public class RulesController : ControllerBase
     public async Task<IActionResult> List(Guid workspaceId) =>
         Ok(await _db.Rules.AsNoTracking().Where(r => r.WorkspaceId == workspaceId).OrderBy(r => r.Title).ToListAsync(HttpContext.RequestAborted));
 
+    [HttpGet("approved-snapshot")]
+    public async Task<IActionResult> ApprovedSnapshot(Guid workspaceId) =>
+        Ok(await _rules.ApprovedSnapshotAsync(workspaceId, HttpContext.RequestAborted));
+
     [HttpGet("access")]
     public async Task<IActionResult> Access(Guid workspaceId)
     {

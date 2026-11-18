@@ -1,5 +1,9 @@
 # Final audit — 15 November 2026
 
+> **16 November 2026 acceptance re-run:** after the T4 runtime was reconnected, the real-stack walk passed for parse, chunk `[1,3,5]`, review, embed, question, full case, flag, draft test and publication of v5. Hosted CI is still **red**; viewer/editor limits and named-clinician rule approval were not run; the export download was requested but not independently inspected. Current evidence: [acceptance-rerun-2026-11-16.md](acceptance-rerun-2026-11-16.md).
+
+> Historical record. The unrestricted-CORS finding below was superseded on 16 November 2026 by the named allowlist and security-header work; the rest of this audit remains historical evidence.
+
 **Not a clean sign-off.** All requested build/test commands were rerun. CORS, backend harness failures, frontend lint errors, a frontend test timeout, genuine live acceptance and trusted draft publication remain unresolved. The subsequent user-authorized Colab setup corrections are recorded below; historical evaluation artifacts were not overwritten.
 
 ## Fresh checks
@@ -118,14 +122,58 @@ Account B completed private sign-in to the existing designated Firebase account 
 
 After isolation, a final independent `/ready` recheck still returned **200**, with database/Colab/pipeline ready and the same genuine Qwen/PubMedBERT/768-dimension/Tesla-T4 metadata. SHA-256 rechecks confirmed the source ZIP and both synthetic PDFs unchanged. Services, tunnels and Colab were left running; failed histories and original evaluation artifacts were not replaced. This acceptance attempt remains **not a clean sign-off**.
 
+## Current local verification — 16 November 2026
+
+These are current local results, not a hosted CI run.
+
+| Command | Actual result |
+| --- | --- |
+| `dotnet build backend/ClinicalRag.Api.csproj --nologo --no-restore` | **Passed: 0 warnings / 0 errors** |
+| `dotnet test backend.Tests --no-restore` | **875 passed / 0 failed / 0 skipped** |
+| `python -m pytest tests -q` | **589 passed** |
+| `python -m pytest tests/test_ingestion_fixtures.py -q` | **6 passed** |
+| `npm run lint` | **Passed: 0 errors / 0 warnings** (prior same-worktree run; no frontend files changed in this task) |
+| `npm test` | **15 Node passed; 555 Vitest passed** (prior same-worktree run; no frontend files changed in this task) |
+| Targeted rules-editor timing test | **20 consecutive passes** |
+| `npm run build` | **Passed**, native SWC loaded, no WASM fallback (prior same-worktree run) |
+| `dotnet list package --vulnerable --include-transitive` | **No vulnerable .NET packages** |
+| `npm audit` | **17 findings: 2 low, 11 moderate, 4 high, 0 critical**; production-only: 10 (2 low, 4 moderate, 4 high) |
+
+The two historical harness failures now pass because the runner requires and forwards the authenticated bearer token; a new regression proves a missing token fails closed before comparison. The historical ESLint findings and frontend timeout are also resolved.
+
+## Evaluation and load-test status — 16 November 2026
+
+The offline synthetic-fixture regression gate was run from the real harness and passed:
+
+```powershell
+python eval/run_eval.py --output eval/results/synthetic-retrieval-2026-11-16.json
+python eval/compare_baseline.py --baseline eval/baselines/synthetic-retrieval.v1.json --current eval/results/synthetic-retrieval-2026-11-16.json --tolerances eval/baselines/synthetic-retrieval.tolerances.json --output eval/results/synthetic-baseline-gate-2026-11-16-run2.json
+```
+
+Observed metrics: `recallAt8=1`, `mrrAt8=0.7916666666666666`, `ndcgAt8=0.8462207306547741`, `candidateRecallAt30=1`, fixture SHA-256 `e8410b5d6cdaa20561ebb596377d7e03f8b31cdce311c298890cd16f7ff7df77`. The gate passed. These are fixed-vector synthetic retrieval numbers, not real-model or clinical-quality evidence.
+
+No clinician-labelled evaluation or real staging load test was executed in this pass:
+
+| Attempt | Actual result | Preserved evidence |
+| --- | --- | --- |
+| `python eval/run_eval.py --mode clinical --clinical-set eval/clinical/template.json --output-dir eval/results/clinical` | **BLOCKED**: the template has no clinician labels/attestation; live endpoints and credentials were also not configured. | `eval/results/clinical/2026-11-16T07-57-36Z-clinical-blocked/` |
+| `python eval/run_eval.py --mode clinical --clinical-set eval/clinical/synthetic-example.json --allow-synthetic --output-dir eval/results/clinical` | **BLOCKED**: no live pipeline/backend URL, workspace ID, Firebase token or pipeline key. The synthetic example is not clinical evidence. | `eval/results/clinical/2026-11-16T08-03-29Z-clinical-synthetic-blocked/` |
+| `python scripts/loadtest/run_loadtest.py --duration 60s --vus 1,3,10 --output-dir scripts/loadtest/results` | **BLOCKED**: k6 is not installed and no real staging stack/Colab runtime is available. No load was generated. | `scripts/loadtest/results/2026-11-16T07-46-24Z-loadtest-blocked/` |
+
+Therefore hit@k, MRR, verified-rate, not-covered-rate, unsupported-claim rate, per-reason rejection counts, deployed retrieve/analyze p50/p95/p99, concurrent chunk-job behavior, GPU memory, and 429/503 rates remain **unmeasured on the real stack**. The runners refuse to convert missing labels or infrastructure into a passing result.
+
 ## Remaining gaps
 
-- Unrestricted CORS, two backend harness failures, three lint errors, seven lint warnings and the frontend timing-sensitive timeout.
-- Corrected Colab installation, offline tests, genuine GPU/model readiness and registration passed; clinical behavior and load headroom remain unverified.
-- Verified owner A and uninvited B's tested read isolation, both synthetic PDF lifecycles, prompt-draft persistence, rule create/submit/enablement separation, canonical simulation and untested-draft publication denial established. New-account/verification-email flows were not exercised. Both in-app tests failed before pipeline results; clinician approval and live approved-rule firing remain unestablished. FINAL marker and full-case useful-answer expectations failed; DRAFT/FINAL quote and badge results do not establish clinical correctness.
-- Trusted draft-bound testing/publication is unfinished and must not be bypassed.
-- Live notebook rotation/heartbeat, deployment migration, real provider outages and deployment-scale behavior are not certified by mocks.
-- Clinical-quality evaluation and question provenance remain unestablished. Original evaluation artifacts are preserved; synthetic fixed-vector measurements are not publication or clinical evidence.
-- The original EF InMemory warm retrieval p95 still exceeds 100 ms; separate SQL/stub-model measurements do not prove deployed GPU/network/concurrent latency or a follow-up speedup.
-- Known dependency advisories and native SWC fallback remain.
-- No Git metadata, commit, push or PR exists here.
+- Clinical correctness, clinical-quality evaluation and question provenance remain unverified. Verified counts and synthetic fixtures do not establish guideline fidelity or safety.
+- `eval/clinical/` ships the template, loader and synthetic worked example, but no clinician-labelled set has been supplied. The live full-path clinical evaluation is blocked on clinician labels plus a staging stack, verified Firebase token and pipeline key.
+- `scripts/loadtest/` is implemented, but the deployed-scale run is blocked on k6, a real staging stack and an active real Colab runtime. Retrieve/analyze percentiles, concurrent chunk-job behavior, GPU memory and 429/503 rates are not measured.
+- The CI `eval-gate` job and the new load-test/clinical tests were not exercised by hosted CI or an independent reviewer in this pass; the local synthetic gate and unit tests passed.
+- Real Firebase signup and emailed verification delivery were not exercised end-to-end in this pass. Automated tests cover new-user bootstrap and verified/unverified signed tokens.
+- Full-case useful-answer/management coverage remains unresolved: the synthetic full case still returns `empty_draft` / Not covered, and verified counts do not establish management coverage.
+- No fresh live end-to-end trusted-test publication or live approved-rule firing was repeated in this pass. Offline and integration tests cover the gate; live clinical publication remains separately governed.
+- Live notebook rotation/heartbeat and a real runtime restart were **not** performed; the transport/API rehearsal passed and the notebook procedure is documented. Deployment migration, backup/restore and Full-Text population were rehearsed locally on SQL Server 2025 and recorded in [operations.md](operations.md#deployment-rehearsal--16-november-2026); real provider outages and deployment-scale behavior remain unverified.
+- The historical EF InMemory warm-retrieval p95 remains above 100 ms; separate SQL/stub-model measurements do not prove deployed GPU/network/concurrent latency or a speedup.
+- npm dependency advisories remain (2 low, 11 moderate, 4 high; 0 critical). The remaining high fixes require breaking major downgrades; .NET vulnerable packages are resolved.
+- The frontend CSP restricts network origins to self/API/Firebase but still uses `'unsafe-inline'` for Next inline scripts/styles; a nonce-based CSP remains future work.
+- Ingestion is deterministic text extraction with no OCR. Synthetic ingestion fixtures pass; a legally usable real guideline PDF has not been supplied for page-level observation. See [ingestion-limits.md](ingestion-limits.md).
+- The worktree remains uncommitted. No hosted CI run, independent review, commit, push or PR was performed in this pass.

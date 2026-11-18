@@ -145,7 +145,7 @@ From `frontend/`: `npm test`, `npx tsc --noEmit --incremental false`, `npm run b
 
 ## Rollout and remaining acceptance gaps
 
-Follow the [deployment runbook](retrieval-deployment.md): backup/drain, reviewed binary migration, matching backend/Colab deployment, real re-embedding and optional Full-Text population checks. The cache is **process-local**, with no distributed invalidation; other-instance/direct SQL changes can delay current recall until expiry/refresh. Its budget bounds estimated retained entries, not total process/cold-load memory. Full-Text language, stoplist and eventual population can differ from BM25 and need corpus-specific evaluation.
+Follow the [deployment runbook](retrieval-deployment.md): backup/drain, reviewed binary migration, matching backend/Colab deployment, real re-embedding and optional Full-Text population checks. The cache now checks a durable per-workspace `SearchGeneration`; the SQL Server chunk trigger advances it for other API instances and direct SQL writers, so those changes reload on the next retrieval instead of waiting for expiry. Its budget bounds estimated retained entries, not total process/cold-load memory. Full-Text language, stoplist and eventual population can differ from BM25 and need corpus-specific evaluation.
 
 - [x] Bounded embeddings, durable progress, labelled float32 binary storage and mixed-model refusal.
 - [x] Cached SIMD + Full-Text/BM25 + RRF retrieval, current shortlisted metadata and shared rerank caps.

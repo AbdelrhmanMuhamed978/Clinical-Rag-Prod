@@ -98,6 +98,20 @@ def test_pipeline_service_returns_verified_contract():
     assert item["quote"] == "we recommend norepinephrine as the first-line agent"
     assert item["citation"]["id"] == "S1"
     assert result["problems"][0]["unverified"] == []
+    assert "diagnostics" not in result
+
+
+def test_diagnostics_are_opt_in_on_the_service_authenticated_test_contract():
+    app = create_app(backend_factory=lambda request, token: FakeBackend())
+    payload = {**request_payload(), "testRunDiagnostics": True}
+    with TestClient(app) as client:
+        denied = client.post("/analyze", headers={"Authorization":"Bearer user-token"}, json=payload)
+        allowed = client.post("/analyze", headers=HEADERS, json=payload)
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+    diagnostics = allowed.json()["diagnostics"]
+    assert diagnostics[0]["problemIndex"] == 1 and diagnostics[0]["verified"] == 1
+    assert '"quote":' not in json.dumps(diagnostics)
 
 
 def test_pipeline_service_streams_real_progress_and_result():
@@ -323,14 +337,19 @@ def test_pipeline_completion_events_wait_for_the_actual_stage_to_finish():
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("word_count,mode", [(39, "question"), (40, "case")])
-def test_stream_mode_uses_the_pipeline_word_boundary_and_only_reached_case_stages(word_count, mode):
+@pytest.mark.parametrize("text,mode,plan_source", [
+    (" ".join(["synthetic"] * 39) + " query", "question", "single_question"),
+    (" ".join(["synthetic"] * 40), "question", "single_question"),
+    (" ".join(["synthetic"] * 39) + " BP 80/50", "case", "rules"),
+    ("Which synthetic target applies? BP 80/50", "question", "single_question"),
+])
+def test_mode_uses_questions_and_extracted_facts_not_word_count(text, mode, plan_source):
     class NoEvidenceBackend(FakeBackend):
         async def retrieve(self, query):
             return {"context": "NOT_FOUND", "chunks": []}
 
     payload = request_payload({"retrieval": {"queriesPerProblem": 1}})
-    payload["text"] = " ".join(["synthetic"] * (word_count - 1) + ["query"])
+    payload["text"] = text
     app = create_app(backend_factory=lambda request, token: NoEvidenceBackend())
     with TestClient(app) as client:
         response = client.post("/analyze/stream", headers=HEADERS, json=payload)
@@ -341,7 +360,7 @@ def test_stream_mode_uses_the_pipeline_word_boundary_and_only_reached_case_stage
     assert stages == ({"planning", "retrieval"} if mode == "question" else {"facts", "planning", "retrieval", "patient_checks"})
     assert "verification" not in stages
     assert events[-1][0] == "result"
-    assert events[-1][1]["plan_source"] == ("single_question" if mode == "question" else "rules")
+    assert events[-1][1]["plan_source"] == plan_source
     assert all(not problem["items"] for problem in events[-1][1]["problems"])
 
 
@@ -419,7 +438,7 @@ def test_stage_failures_report_failed_not_completed_and_end_with_a_safe_terminal
 
     payload = request_payload({"retrieval": {"queriesPerProblem": 1}})
     if stage == "facts":
-        payload["text"] = " ".join(["synthetic"] * 40)
+        payload["text"] = " ".join(["synthetic"] * 39) + " BP 80/50"
         def broken_facts(*args, **kwargs):
             raise RuntimeError("PRIVATE_FACTS_ERROR")
         monkeypatch.setattr(P.F, "analyze_facts", broken_facts)

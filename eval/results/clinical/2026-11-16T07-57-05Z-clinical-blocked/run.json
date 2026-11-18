@@ -1,0 +1,42 @@
+{
+  "blockedReasons": [
+    "--pipeline-url / EVAL_PIPELINE_URL is required (argument or environment variable).",
+    "--backend-url / EVAL_BACKEND_URL is required (argument or environment variable).",
+    "--workspace-id or EVAL_WORKSPACE_ID is required.",
+    "A Firebase token is required via EVAL_FIREBASE_TOKEN or --firebase-token-file.",
+    "EVAL_PIPELINE_KEY is required for the authenticated pipeline service.",
+    "Clinical set is not runnable:\n- clinician.name must contain 1\u2013128 characters.\n- clinician.role must contain 1\u2013128 characters.\n- clinician.organisation must contain 1\u2013256 characters.\n- clinician.labelledAt must be an ISO date (YYYY-MM-DD).\n- clinician.attestation must contain 20\u20132000 characters.\n- guidelineCorpus.description must contain 1\u20132000 characters.\n- guidelineCorpus.documentNames must contain 1\u201332 items.\n- No clinician-labelled cases are present. Fill eval/clinical/template.json or use a completed clinician set; the synthetic worked example is not a substitute."
+  ],
+  "cases": [],
+  "clinicalEvidence": false,
+  "commands": [
+    "'C:\\Users\\abdom\\AppData\\Local\\Programs\\Python\\Python313\\python.exe' eval/run_clinical_eval.py --clinical-set eval/clinical/template.json --output-dir eval/results/clinical",
+    "'C:\\Users\\abdom\\AppData\\Local\\Programs\\Python\\Python313\\python.exe' eval/run_eval.py --mode clinical --clinical-set eval/clinical/template.json --output-dir eval/results/clinical",
+    "# EVAL_FIREBASE_TOKEN and EVAL_PIPELINE_KEY are supplied only through the environment; values are never recorded."
+  ],
+  "configVersion": null,
+  "endpoint": {
+    "backendUrl": null,
+    "pipelineUrl": null,
+    "workspaceId": null
+  },
+  "exitCode": 4,
+  "generatedAtUtc": "2026-11-16T07:57:05.133455+00:00",
+  "metrics": null,
+  "modelEvidence": null,
+  "preflight": {},
+  "ruleCount": null,
+  "schemaVersion": "clinical-eval/1.0",
+  "set": {
+    "caseCount": 0,
+    "clinicalEvidence": false,
+    "clinician": {},
+    "guidelineCorpus": {},
+    "instructionsVersion": null,
+    "labelSource": null,
+    "schemaVersion": null,
+    "syntheticNotice": null
+  },
+  "status": "blocked",
+  "thresholdResults": []
+}

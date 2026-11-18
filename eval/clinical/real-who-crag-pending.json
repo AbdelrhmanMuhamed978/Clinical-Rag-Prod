@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "1.0",
+  "labelSource": "synthetic-fixture",
+  "instructionsVersion": "1.0",
+  "syntheticNotice": "ENGINEERING SCAFFOLD ONLY. This synthetic case records a real-guideline layout and the labels supplied in the task, but it is not clinician-labelled and must not be reported as clinical evidence. The 'screening unavailable' expectation is intentionally unfilled pending clinician extraction from the source.",
+  "guidelineCorpus": {
+    "description": "WHO advanced HIV disease guideline (locally held, non-committed PDF); clinical labels pending.",
+    "documentNames": [
+      "9789240118164-eng.pdf"
+    ]
+  },
+  "cases": [
+    {
+      "id": "who-crag-screening-before-art",
+      "kind": "question",
+      "expectedMode": "question",
+      "input": "For adults and adolescents with advanced HIV disease and CD4 below 100, when should cryptococcal antigen screening and pre-emptive antifungal therapy be given before starting ART, and what should be given if screening is unavailable?",
+      "expectedDocuments": [
+        {
+          "fileName": "9789240118164-eng.pdf",
+          "page": 41,
+          "section": "Cryptococcal disease"
+        },
+        {
+          "fileName": "9789240118164-eng.pdf",
+          "page": 11,
+          "section": "Prevention and screening"
+        }
+      ],
+      "expectedStatements": [
+        "Screening for cryptococcal antigen followed by pre-emptive antifungal therapy is recommended before initiating ART for adults and adolescents living with HIV who have a CD4 count <100 cells/mm3."
+      ],
+      "forbiddenStatements": [
+        "For cryptococcal meningitis, induction therapy with amphotericin B is recommended."
+      ],
+      "pendingClinicianFields": [
+        "screeningUnavailableStatement"
+      ],
+      "notes": "The CrAg screening/ART statement is the expectation supplied in the task. The 'screening unavailable' prophylaxis statement must be filled in by a clinician from p.41; engineering has not invented it."
+    }
+  ]
+}

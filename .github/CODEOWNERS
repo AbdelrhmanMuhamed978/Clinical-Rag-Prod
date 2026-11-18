@@ -4,11 +4,12 @@
 
 # Safety-critical pipeline and supported legacy copies.
 /backend/Services/PipelineResultPolicy.cs @AbdelrhmanMuhamed978
-/pipeline.py @AbdelrhmanMuhamed978
-/facts.py @AbdelrhmanMuhamed978
+/python-backend/ @AbdelrhmanMuhamed978
+/python-backend/pipeline.py @AbdelrhmanMuhamed978
+/python-backend/facts.py @AbdelrhmanMuhamed978
+/python-backend/pipeline_service/ @AbdelrhmanMuhamed978
 /clinical-rag/pipeline.py @AbdelrhmanMuhamed978
 /clinical-rag/facts.py @AbdelrhmanMuhamed978
-/pipeline_service/ @AbdelrhmanMuhamed978
 
 # Rule approval, workspace approval authority, and approved-rule projection.
 /backend/Services/RuleService.cs @AbdelrhmanMuhamed978
@@ -35,6 +36,10 @@
 /tests/test_pipeline_safety.py @AbdelrhmanMuhamed978
 /tests/test_pipeline_service.py @AbdelrhmanMuhamed978
 /tests/test_rule_facts.py @AbdelrhmanMuhamed978
+
+# Evaluation evidence, synthetic baselines and the load-test harness.
+/eval/ @AbdelrhmanMuhamed978
+/scripts/loadtest/ @AbdelrhmanMuhamed978
 
 # Review/CI governance must itself be reviewed.
 /.github/ @AbdelrhmanMuhamed978

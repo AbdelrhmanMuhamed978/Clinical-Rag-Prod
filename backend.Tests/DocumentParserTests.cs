@@ -84,6 +84,36 @@ public class DocumentParserTests
         await using var observe = store.CreateContext(); Assert.Equal(3, (await observe.Documents.SingleAsync()).Revision);
     }
 
+    [Fact]
+    public async Task Image_only_pages_are_persisted_and_reported_without_losing_parsed_pages()
+    {
+        using var store = new DocumentTestStore();
+        var document = await store.AddDocumentAsync("uploaded", parsed: false);
+        var http = new FakeHttpClientFactory(new DocumentHttpHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    text = "--- Page 1 ---\nSynthetic extractable text.",
+                    pageCount = 3,
+                    needsOcrPages = new[] { 2, 3 }
+                })
+            })));
+        await using var db = store.CreateContext();
+        var parser = new DocumentParser(db, TestColabClients.Create(store.Configuration, http), store.Configuration);
+        var result = await parser.ParseAsync(document.WorkspaceId, document.Id);
+
+        Assert.Equal("parsed", result.Outcome);
+        Assert.Equal(new[] { 2, 3 }, result.NeedsOcrPages!.ToArray());
+        db.ChangeTracker.Clear();
+        var saved = await db.Documents.SingleAsync();
+        Assert.Equal("[2,3]", saved.NeedsOcrPages);
+        Assert.Contains("Synthetic extractable text.", saved.ParsedText);
+        var view = DocumentLifecycle.View(saved, DocumentChunkCounts.Empty);
+        Assert.Equal("parsed", view.Status);
+        Assert.Equal(new[] { 2, 3 }, view.NeedsOcrPages!.ToArray());
+    }
+
     [Theory]
     [InlineData("null")]
     [InlineData("[]")]

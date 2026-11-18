@@ -233,5 +233,5 @@ sealed class EvalColab : IColabClient
     public Task<bool> HealthAsync() => throw new NotSupportedException();
     public Task<ColabReadiness> ReadyAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<JsonElement> ParsePdfAsync(byte[] bytes, string fileName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    public Task<JsonElement?> RunChunkJobAsync(JsonElement body, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<JsonElement?> RunChunkJobAsync(JsonElement body, int? timeoutSeconds = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 }

@@ -4,7 +4,7 @@ import json
 import os
 
 
-REQUIRED_JOBS = ("dotnet", "pytest", "frontend", "secret-scan")
+REQUIRED_JOBS = ("dotnet", "pytest", "frontend", "eval-gate", "secret-scan")
 KNOWN_RESULTS = {"success", "failure", "cancelled", "skipped", "neutral", "timed_out"}
 
 

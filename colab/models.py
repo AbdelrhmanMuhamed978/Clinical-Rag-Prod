@@ -77,6 +77,12 @@ class ModelRuntime:
     embedding_model = "pritamdeka/S-PubMedBert-MS-MARCO"
 
     def __init__(self) -> None:
+        flag = os.getenv("COLAB_ENABLE_LARGER_MODEL", "0").strip().lower()
+        if flag not in {"0", "false", "1", "true"}:
+            raise ValueError("COLAB_ENABLE_LARGER_MODEL must be 0/false or 1/true.")
+        self.larger_model = flag in {"1", "true"}
+        self.model_name = "Qwen/Qwen3-8B-AWQ" if self.larger_model else type(self).model_name
+        self.quantization = "awq" if self.larger_model else None
         self.device = "unknown"
         self.gpu_info: dict[str, Any] = {"available": False, "name": None, "device": "unknown", "totalMemoryBytes": None}
         self.embedding_dimensions: int | None = None
@@ -128,6 +134,7 @@ class ModelRuntime:
             enforce_eager=True,
             disable_log_requests=True,
             trust_remote_code=True,
+            **({"quantization": self.quantization} if self.quantization else {}),
         )
         self.engine = AsyncLLMEngine.from_engine_args(engine_args)
         self._sampling_params = SamplingParams
@@ -142,10 +149,30 @@ class ModelRuntime:
             automodel_args={"torch_dtype": torch.float16} if self.device == "cuda" else {},
         )
 
+    def gpu_memory(self) -> dict[str, int]:
+        """Live CUDA memory evidence for load-test reports; never loads models."""
+        if self.device != "cuda":
+            return {}
+        try:
+            import torch
+
+            free, total = torch.cuda.mem_get_info()
+            return {
+                "totalMemoryBytes": int(total),
+                "usedMemoryBytes": int(total - free),
+                "allocatedMemoryBytes": int(torch.cuda.memory_allocated()),
+                "peakAllocatedBytes": int(torch.cuda.max_memory_allocated()),
+            }
+        except Exception:
+            # A driver/runtime failure must not make readiness itself fail.
+            return {}
+
     def readiness(self) -> dict[str, Any]:
+        gpu = dict(self.gpu_info)
+        gpu.update(self.gpu_memory())
         return {"ready": self._started and all(model is not None for model in (self.engine, self.embedder, self.reranker)),
                 "model": self.model_name, "embeddingModel": self.embedding_model,
-                "embeddingDimensions": self.embedding_dimensions, "gpu": self.gpu_info}
+                "embeddingDimensions": self.embedding_dimensions, "gpu": gpu}
 
     async def generate(self, prompt: str, max_new_tokens: int = 750,
                        temperature: float = 0.1,
@@ -155,6 +182,7 @@ class ModelRuntime:
             [{"role": "user", "content": prompt}],
             tokenize=False,
             add_generation_prompt=True,
+            **({"enable_thinking": False} if self.larger_model else {}),
         )
         prompt_tokens = len(self.tokenizer(rendered).input_ids)
         budget = 8192 - prompt_tokens - 16

@@ -53,6 +53,41 @@ END";
         return name;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Trusted_test_evidence_upgrade_scrubs_legacy_output_and_requires_rerunning(bool schemaScript)
+    {
+        using var db = CreateContext(NewDatabaseName());
+        await db.Database.MigrateAsync("WorkspaceAdministration");
+        var caseId = Guid.NewGuid(); var draftId = Guid.NewGuid(); var runId = Guid.NewGuid(); var now = DateTime.UtcNow;
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO [TestCases] ([Id],[WorkspaceId],[Name],[InputText],[ExpectedJson],[LastRunJson],[LastRunAt],[CreatedAt]) VALUES ({caseId},{WorkspaceId},{"Synthetic"},{"SYNTHETIC_INPUT"},{"{}"},{"LEGACY_BODY"},{now},{now})");
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO [TestRuns] ([Id],[WorkspaceId],[CaseId],[ConfigId],[ConfigVersion],[ConfigHash],[Status],[Diff],[DurationMilliseconds],[StartedAt],[CompletedAt]) VALUES ({runId},{WorkspaceId},{caseId},{draftId},{2},{"legacy-hash"},{"passed"},{"LEGACY_DIFF"},{1.0},{now},{now})");
+        if (schemaScript) await ApplySchemaScriptAsync(db); else await db.Database.MigrateAsync();
+        var c = await db.TestCases.AsNoTracking().SingleAsync(); var run = await db.TestRuns.AsNoTracking().SingleAsync();
+        Assert.Equal(1, c.Revision); Assert.True(c.UpdatedAt >= now); Assert.Null(c.LastRunJson); Assert.Null(c.LastRunAt);
+        Assert.Equal("SYNTHETIC_INPUT", c.InputText); Assert.Equal("{}", c.ExpectedJson);
+        Assert.Equal(0, run.CaseRevision); Assert.DoesNotContain("LEGACY_DIFF", run.Diff);
+        Assert.Equal(runId, run.Id);
+    }
+
+    [Fact]
+    public async Task Publication_evidence_range_lock_blocks_case_additions_until_commit()
+    {
+        var database = NewDatabaseName(); using var db = CreateContext(database); await db.Database.MigrateAsync();
+        var config = db.ConfigVersions.Add(new ConfigVersion { WorkspaceId = WorkspaceId, Version = 1, ConfigJson = ConfigService.DefaultConfig() }).Entity;
+        await db.SaveChangesAsync();
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        Assert.Equal("no_cases", (await new PersistedConfigTestRunProvider(db).GetGateAsync(WorkspaceId, config.Id)).Code);
+        using var writer = CreateContext(database);
+        writer.TestCases.Add(new TestCase { WorkspaceId = WorkspaceId, Name = "Synthetic case", InputText = "Synthetic" });
+        var pending = writer.SaveChangesAsync();
+        await Assert.ThrowsAsync<TimeoutException>(() => pending.WaitAsync(TimeSpan.FromMilliseconds(200)));
+        await transaction.CommitAsync();
+        await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("case_missing_run", (await new PersistedConfigTestRunProvider(db).GetGateAsync(WorkspaceId, config.Id)).Code);
+    }
+
     private AppDbContext CreateContext(string databaseName)
     {
         var cs = new SqlConnectionStringBuilder
@@ -146,6 +181,8 @@ END";
         Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), m => m.EndsWith("_ColabOperationalConnection"));
         Assert.Empty(await db.ColabConnections.ToListAsync()); // No tunnel/key fallback or automatic administrator bootstrap.
         Assert.Equal(1, (await db.Documents.SingleAsync()).Revision);
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>(
+            "SELECT COUNT(*) AS [Value] FROM sys.triggers WHERE [name] = N'TR_Chunks_SearchGeneration'").SingleAsync());
     }
 
     // Existing old database: stamped at the Initial baseline, then ChunkMetadata brings it
@@ -522,10 +559,95 @@ END";
         Assert.False(json.TryGetProperty("Embedding", out _)); Assert.False(json.TryGetProperty("LegacyEmbeddingJson", out _));
         var client = new FakeColabClient { EmbedHandler = texts => Task.FromResult(EmbeddingTestData.Result(texts.Count, EmbeddingTestData.Model, 1, 0)) };
         var service = new DocumentEmbeddingService(db, new EmbeddingBatchClient(client, new ConfigurationBuilder().Build()));
-        Assert.Equal(200, (await service.EmbedAsync(WorkspaceId, chunk.DocumentId, CancellationToken.None)).StatusCode);
+        var embedResult = await service.EmbedAsync(WorkspaceId, chunk.DocumentId, CancellationToken.None);
+        Assert.True(embedResult.StatusCode == 200,
+            embedResult.Error ?? embedResult.Message ?? $"Embedding returned HTTP {embedResult.StatusCode}.");
         db.ChangeTracker.Clear(); saved = await db.Chunks.AsNoTracking().SingleAsync();
         Assert.Null(saved.LegacyEmbeddingJson); Assert.Equal("embedded", saved.Status);
         Assert.Equal(EmbeddingVectors.EncodeNormalized([1, 0]), saved.Embedding);
+    }
+
+    [Fact]
+    public async Task Rehearsal_legacy_json_embeddings_preserve_archive_return_to_review_and_reembed()
+    {
+        using var db = CreateContext(NewDatabaseName());
+        await db.Database.MigrateAsync("DocumentProcessingState");
+        var userId = Guid.NewGuid(); var workspaceId = Guid.NewGuid();
+        var documentId = Guid.NewGuid(); var interruptedId = Guid.NewGuid();
+        var created = new DateTime(2026, 11, 1, 10, 0, 0, DateTimeKind.Utc);
+        var legacy = new[]
+        {
+            (Id: Guid.NewGuid(), Page: 1, Json: (string?)"[1.0,0.0]"),
+            (Id: Guid.NewGuid(), Page: 2, Json: (string?)""),
+            (Id: Guid.NewGuid(), Page: 3, Json: (string?)"not JSON: synthetic archive"),
+            (Id: Guid.NewGuid(), Page: 4, Json: (string?)null),
+        };
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO [Users] ([Id], [FirebaseUid], [Email], [CreatedAt])
+            VALUES ({userId}, {"rehearsal-user"}, {"synthetic@example.invalid"}, {created});
+            INSERT INTO [Workspaces] ([Id], [Name], [OwnerId], [CreatedAt])
+            VALUES ({workspaceId}, {"Rehearsal workspace"}, {userId}, {created});
+            INSERT INTO [Documents] ([Id], [WorkspaceId], [FileName], [Status], [ParsedText], [PageCount],
+                [ChunkedPagesCount], [ChunkingStatus], [ChunkedPageNumbers], [UploadedBy], [CreatedAt], [UpdatedAt],
+                [GuidelineStatus], [Society], [Year], [ProcessingOperation], [Revision])
+            VALUES ({documentId}, {workspaceId}, {"rehearsal.pdf"}, {"indexed"}, {"Retained source text"}, {4},
+                {4}, {"completed"}, {"[1,2,3,4]"}, {userId}, {created}, {created}, {"final"}, {"Synthetic Society"},
+                {2024}, {null}, {7});
+            INSERT INTO [Documents] ([Id], [WorkspaceId], [FileName], [Status], [ParsedText], [PageCount],
+                [ChunkedPagesCount], [ChunkingStatus], [ChunkedPageNumbers], [UploadedBy], [CreatedAt], [UpdatedAt],
+                [GuidelineStatus], [Society], [Year], [ProcessingOperation], [Revision])
+            VALUES ({interruptedId}, {workspaceId}, {"interrupted.pdf"}, {"review"}, {null}, {null},
+                {null}, {null}, {null}, {userId}, {created}, {created}, {"draft"}, {"Synthetic Society"},
+                {2024}, {"embedding"}, {9});
+            """);
+        foreach (var chunk in legacy)
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO [Chunks] ([Id], [WorkspaceId], [DocumentId], [Page], [Text], [Status], [Embedding],
+                    [EmbeddingModel], [CreatedAt], [Type], [Verbatim])
+                VALUES ({chunk.Id}, {workspaceId}, {documentId}, {chunk.Page}, {"archiveonlyneedle retained quotation"},
+                    {"embedded"}, {chunk.Json}, {"LegacyModel"}, {created}, {"clinical"}, {true});
+                """);
+
+        await ApplySchemaScriptAsync(db);
+        db.ChangeTracker.Clear();
+        var chunks = await db.Chunks.AsNoTracking().OrderBy(c => c.Page).ToListAsync();
+        Assert.Equal(legacy.Length, chunks.Count);
+        Assert.Equal(legacy.Select(item => item.Json), chunks.Select(c => c.LegacyEmbeddingJson));
+        Assert.All(chunks, chunk => Assert.Null(chunk.Embedding));
+        Assert.All(chunks, chunk => Assert.Equal("accepted", chunk.Status));
+        var document = await db.Documents.AsNoTracking().SingleAsync(d => d.Id == documentId);
+        Assert.Equal("review", document.Status); Assert.Equal(8, document.Revision);
+        var interrupted = await db.Documents.AsNoTracking().SingleAsync(d => d.Id == interruptedId);
+        Assert.Equal("failed", interrupted.Status); Assert.Null(interrupted.ProcessingOperation);
+        Assert.Equal("embedding", interrupted.FailureStage); Assert.Equal(10, interrupted.Revision);
+        Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), m => m.EndsWith("_BinaryChunkEmbeddings"));
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>(
+            "SELECT COUNT(*) AS [Value] FROM sys.triggers WHERE [name] = N'TR_Chunks_SearchGeneration'").SingleAsync());
+
+        // Reapply the reviewed script: no data drift and the trigger remains single.
+        await ApplySchemaScriptAsync(db);
+        Assert.Equal(legacy.Select(item => item.Json),
+            (await db.Chunks.AsNoTracking().OrderBy(c => c.Page).ToListAsync()).Select(c => c.LegacyEmbeddingJson));
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>(
+            "SELECT COUNT(*) AS [Value] FROM sys.triggers WHERE [name] = N'TR_Chunks_SearchGeneration'").SingleAsync());
+
+        var client = new FakeColabClient
+        { EmbedHandler = texts => Task.FromResult(EmbeddingTestData.Result(texts.Count, EmbeddingTestData.Model, 1, 0)) };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Embedding:BatchSize"] = "2",
+            ["Embedding:RetryBaseMilliseconds"] = "0",
+        }).Build();
+        var result = await new DocumentEmbeddingService(db, new EmbeddingBatchClient(client, configuration))
+            .EmbedAsync(workspaceId, documentId, CancellationToken.None);
+        Assert.True(result.StatusCode == 200, result.Error ?? result.Message ?? $"HTTP {result.StatusCode}");
+        Assert.Equal(legacy.Length, result.Embedded);
+        db.ChangeTracker.Clear();
+        var embedded = await db.Chunks.AsNoTracking().Where(c => c.DocumentId == documentId).ToListAsync();
+        Assert.All(embedded, chunk => Assert.Null(chunk.LegacyEmbeddingJson));
+        Assert.All(embedded, chunk => Assert.Equal("embedded", chunk.Status));
+        Assert.All(embedded, chunk => Assert.NotNull(chunk.Embedding));
+        Assert.Equal("indexed", (await db.Documents.AsNoTracking().SingleAsync(d => d.Id == documentId)).Status);
     }
 
     [Fact]
@@ -547,15 +669,20 @@ END";
     [InlineData("cleanup")]
     public async Task Management_downgrade_refuses_to_discard_each_durable_record_and_preserves_schema_and_data(string record)
     {
+        // Apply the current schema, then attempt a downgrade through the guarded management migration.
         using var db = CreateContext(NewDatabaseName()); await db.Database.MigrateAsync(); SeedMinimal(db);
         if (record == "tombstone") { var workspace = await db.Workspaces.SingleAsync(); workspace.DeletedAt = LegacyReviewedAt; workspace.DeletedBy = ReviewerId; }
         if (record == "invitation") db.WorkspaceInvitations.Add(new() { WorkspaceId = WorkspaceId, Email = "synthetic-invite@example.org", Role = "owner", InvitedBy = ReviewerId });
         if (record == "cleanup") db.PendingUploadDeletions.Add(new() { StoragePath = "synthetic-pending.pdf", LastAttemptAt = LegacyReviewedAt });
         await db.SaveChangesAsync();
-        var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
         var exception = await Assert.ThrowsAsync<SqlException>(() => db.Database.MigrateAsync("TestRunHarness"));
         Assert.Equal(51002, exception.Number);
-        Assert.Equal(applied, await db.Database.GetAppliedMigrationsAsync());
+        var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+        Assert.Contains(applied, m => m.EndsWith("_WorkspaceAdministration"));
+        Assert.DoesNotContain(applied, m => m.EndsWith("_TrustedTestEvidence") || m.EndsWith("_NeedsOcrPages"));
+        // Later migrations were down-committed before the guard; reapply the
+        // current model so the preserved rows can be read through EF.
+        await db.Database.MigrateAsync();
         db.ChangeTracker.Clear();
         Assert.Equal(record == "tombstone" ? LegacyReviewedAt : (DateTime?)null, (await db.Workspaces.SingleAsync()).DeletedAt);
         Assert.Equal(record == "invitation" ? 1 : 0, await db.WorkspaceInvitations.CountAsync());
@@ -576,8 +703,12 @@ END";
         // ColabOperationalConnection down-committed before BinaryChunkEmbeddings down threw, so five remain applied.
         // Binary vectors and all other data are unchanged.
         Assert.Equal(5, (await db.Database.GetAppliedMigrationsAsync()).Count());
-        Assert.Equal(vector, (await db.Chunks.AsNoTracking().SingleAsync()).Embedding);
-        Assert.Equal("embedded", (await db.Chunks.AsNoTracking().SingleAsync()).Status);
+        // The reparse metadata migration was down-committed before the binary
+        // vector guard fired, so the current EF model no longer maps this
+        // table. Read the preserved columns with SQL instead.
+        var id = await db.Database.SqlQuery<Guid>($"SELECT [Id] AS [Value] FROM [Chunks]").SingleAsync();
+        Assert.Equal(vector, await db.Database.SqlQuery<byte[]>($"SELECT [Embedding] AS [Value] FROM [Chunks] WHERE [Id] = {id}").SingleAsync());
+        Assert.Equal("embedded", await db.Database.SqlQuery<string>($"SELECT [Status] AS [Value] FROM [Chunks] WHERE [Id] = {id}").SingleAsync());
     }
 
     [Fact]

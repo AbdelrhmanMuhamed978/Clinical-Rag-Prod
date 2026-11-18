@@ -1,0 +1,60 @@
+# Starting-point Prometheus alert rules for Clinical RAG.
+# Scrape the ASP.NET /metrics endpoint with an operations key or platform-admin
+# bearer, and run a blackbox_exporter probe against the public /ready endpoint.
+# Tune thresholds to the deployed baseline; do not treat these as clinical limits.
+groups:
+  - name: clinical-rag-availability
+    rules:
+      - alert: ClinicalRagReadyFailing
+        expr: probe_success{job="clinical-rag-ready"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: clinical-rag
+        annotations:
+          summary: "Clinical RAG /ready has failed for 2 minutes"
+          description: "The readiness endpoint is not returning 200. Check database, Colab/model, and Python pipeline readiness. /health may still be 200; do not restart blindly."
+          runbook_url: "docs/runbook.md#ready-failure"
+
+      - alert: ClinicalRag5xxRateHigh
+        expr: |
+          (
+            sum(rate(clinicalrag_step_duration_milliseconds_count{step="http.server",outcome="error"}[5m]))
+            /
+            clamp_min(sum(rate(clinicalrag_step_duration_milliseconds_count{step="http.server"}[5m])), 0.001)
+          ) > 0.02
+        for: 5m
+        labels:
+          severity: warning
+          service: clinical-rag
+        annotations:
+          summary: "Clinical RAG HTTP 5xx rate is above 2%"
+          description: "The sanitized http.server error outcome is elevated. Identify the dependency from logs/request IDs; do not log prompts or case text."
+          runbook_url: "docs/runbook.md#5xx-rate"
+
+      - alert: ClinicalRagP95LatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(clinicalrag_step_duration_milliseconds_bucket{step="http.server"}[5m]))
+          ) > 1500
+        for: 10m
+        labels:
+          severity: warning
+          service: clinical-rag
+        annotations:
+          summary: "Clinical RAG HTTP p95 is above 1.5 seconds"
+          description: "p95 here covers all HTTP routes. Correlate with database, retrieval cache, Full-Text/BM25 fallback, Colab/GPU load and concurrent chunk jobs; use the staging load test rather than guessing."
+          runbook_url: "docs/runbook.md#latency"
+
+      - alert: ClinicalRagColabReadyFailing
+        expr: probe_success{job="clinical-rag-colab-ready"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: clinical-rag
+        annotations:
+          summary: "Colab model runtime probe is failing"
+          description: "Check the registered Colab URL/key, heartbeat freshness, manual override and runtime health. Rotate only through startup registration; old heartbeats cannot restore a superseded connection."
+          runbook_url: "docs/runbook.md#colab-restart"
+

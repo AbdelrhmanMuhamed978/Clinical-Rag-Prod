@@ -10,12 +10,16 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
-import { Eye, EyeOff, Mail, Lock, User, CheckCircle, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, CheckCircle, Loader2 } from "lucide-react";
 
 const Background3D = dynamic(() => import("@/components/Background3D"), { ssr: false });
 
 interface AuthFormProps {
   mode: "login" | "signup";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "Authentication failed. Try again.";
 }
 
 export default function AuthForm({ mode }: AuthFormProps) {
@@ -26,7 +30,6 @@ export default function AuthForm({ mode }: AuthFormProps) {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [flipped, setFlipped] = useState(mode === "signup");
-  const [inputFocused, setInputFocused] = useState(false);
   const router = useRouter();
 
   // Sync URL with flip state
@@ -44,8 +47,8 @@ export default function AuthForm({ mode }: AuthFormProps) {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       router.push("/workspaces");
-    } catch (e: any) {
-      setErr(e.message);
+    } catch (error: unknown) {
+      setErr(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -67,8 +70,8 @@ export default function AuthForm({ mode }: AuthFormProps) {
       const c = await createUserWithEmailAndPassword(auth, email, password);
       await sendEmailVerification(c.user);
       router.push("/verify-email");
-    } catch (e: any) {
-      setErr(e.message);
+    } catch (error: unknown) {
+      setErr(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -109,7 +112,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
                         <Input
                           id="email"
                           value={email}
-                          onChange={e => setEmail(e.target.value)} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)}
+                          onChange={e => setEmail(e.target.value)}
                           type="email"
                           required
                           className="pl-10"
@@ -124,7 +127,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
                         <Input
                           id="password"
                           value={password}
-                          onChange={e => setPassword(e.target.value)} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)}
+                          onChange={e => setPassword(e.target.value)}
                           type={showPassword ? "text" : "password"}
                           required
                           className="pl-10 pr-10"
@@ -192,7 +195,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
                         <Input
                           id="password"
                           value={password}
-                          onChange={e => setPassword(e.target.value)} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)}
+                          onChange={e => setPassword(e.target.value)}
                           type={showPassword ? "text" : "password"}
                           required
                           minLength={6}
@@ -215,7 +218,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
                         <Input
                           id="confirmPassword"
                           value={confirmPassword}
-                          onChange={e => setConfirmPassword(e.target.value)} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)}
+                          onChange={e => setConfirmPassword(e.target.value)}
                           type={showPassword ? "text" : "password"}
                           required
                           className="pl-10"

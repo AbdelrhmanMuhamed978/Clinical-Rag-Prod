@@ -6,6 +6,8 @@ import RulesPage from "@/app/(app)/w/[workspaceId]/rules/page";
 import { ApiError } from "@/lib/api";
 import type { Rule, RuleAccess } from "@/lib/types";
 import { catalogSnapshot, deferred, previewResult, syntheticRule, unloadIsBlocked, vocabulary } from "./rules-fixtures";
+import { seriousViolations } from "./axe";
+import { control, tabTo } from "./keyboard";
 
 const transport = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn(), api: vi.fn() }));
 const scope = vi.hoisted(() => ({ workspaceId: "workspace-1", userId: "user-1" }));
@@ -22,7 +24,7 @@ function mount() {
   clients.push(client);
   const tree = () => <QueryClientProvider client={client}><RulesPage /></QueryClientProvider>;
   const view = render(tree());
-  return { client, user: userEvent.setup(), unmount: view.unmount, rerender: () => view.rerender(tree()) };
+  return { client, user: userEvent.setup({ delay: null }), container: view.container, unmount: view.unmount, rerender: () => view.rerender(tree()) };
 }
 const title = () => screen.getByLabelText("Rule title (required)") as HTMLInputElement;
 const set = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -87,6 +89,22 @@ beforeEach(() => {
 afterEach(() => clients.splice(0).forEach(client => client.clear()));
 
 describe("Rules editor snapshots and saves", () => {
+  it("has no serious or critical structural axe issues", async () => {
+    const view = mount(); await ready();
+    expect(await seriousViolations(view.container, "rules")).toEqual([]);
+  });
+
+  it("starts a new rule and reaches its required title from the keyboard alone", async () => {
+    const { user } = mount(); await ready();
+    const newRule = await tabTo(user, control("New rule", "BUTTON"), "New rule");
+    await user.keyboard("{Enter}");
+    const titleInput = await tabTo(user, element => (element as HTMLInputElement).labels?.[0]?.textContent === "Rule title (required)", "Rule title");
+    expect((titleInput as HTMLInputElement).value).toBe("");
+    await user.keyboard("Keyboard synthetic rule");
+    expect((titleInput as HTMLInputElement).value).toBe("Keyboard synthetic rule");
+    expect(newRule.getAttribute("type")).toBe("button");
+  });
+
   it("keeps the static Rule ID constraint valid under modern HTML Unicode-set syntax", async () => {
     mount(); await ready();
     const input = screen.getByLabelText("Rule ID (required)") as HTMLInputElement;

@@ -27,6 +27,73 @@ describe("structured guideline result rendering", () => {
     expect(within(verified).queryByText(/REJECTED_/)).toBeNull();
   });
 
+  it("renders a verified table quote as a table with its headers, not a paraphrased sentence", () => {
+    const result = pipelineResult();
+    result.problems[0].items[0] = {
+      ...result.problems[0].items[0],
+      quote: "Synthetic row: Synthetic cell",
+      table: { headers: ["Intervention", "CD4 cell count"], row: ["Synthetic row", "Synthetic cell"] },
+    };
+    const { container } = render(<AnalysisResult result={result} />);
+    const table = screen.getByRole("table", { name: "Exact table evidence" });
+    expect(within(table).getByRole("columnheader", { name: "Intervention" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "CD4 cell count" })).toBeTruthy();
+    expect(within(table).getByRole("cell", { name: "Synthetic row" })).toBeTruthy();
+    expect(within(table).getByRole("cell", { name: "Synthetic cell" })).toBeTruthy();
+    expect(container.querySelector("blockquote")).toBeNull();
+  });
+
+  it("keeps off-question verified items in a secondary related group and reports coverage", () => {
+    const result = pipelineResult();
+    const lead = result.problems[0].items[0];
+    result.problems[0].items = [{ ...lead, recommendation: "Screening recommendation.", quote: "Screening source words." }];
+    result.problems[0].related = [{ ...lead, citation: { ...lead.citation, id: "S2" },
+      recommendation: "Induction therapy recommendation.", quote: "Induction source words." }];
+    result.coverage = [{ part: "When is screening recommended?", status: "answered" }];
+    render(<AnalysisResult result={result} />);
+    expect(screen.getByText("Screening recommendation.")).toBeTruthy();
+    const related = screen.getByText(/Related, may not answer your question/).closest("details")!;
+    expect(within(related).getByText("Induction therapy recommendation.")).toBeTruthy();
+    expect(screen.getByText("Question coverage")).toBeTruthy();
+    expect(screen.getByText("Answered")).toBeTruthy();
+  });
+
+  it("shows a related-only question as related, never as a lead answer or Not covered", () => {
+    const result = pipelineResult();
+    const lead = result.problems[0].items[0];
+    result.problems[0].items = [];
+    result.problems[0].related = [{ ...lead, citation: { ...lead.citation, id: "S3" },
+      recommendation: "Related screening statement.", quote: "Related source words." }];
+    result.problems[0].covers = "When is screening recommended?";
+    result.coverage = [{ part: "When is screening recommended?", status: "related_only" }];
+    render(<AnalysisResult result={result} />);
+    const section = screen.getByRole("heading", { name: "Synthetic guideline question" }).closest("section")!;
+    expect(within(section).getByText(/No statement directly answered your question/)).toBeTruthy();
+    expect(within(section).getByText(/Related, may not answer your question/)).toBeTruthy();
+    expect(screen.getByText("Related only")).toBeTruthy();
+    expect(within(section).queryByText(/Not covered by the loaded guidelines with a verifiable statement/)).toBeNull();
+  });
+
+  it("shows both conflicting guideline statements with their labels and never merges them", () => {
+    const result = pipelineResult();
+    const first = result.problems[0].items[0].citation;
+    const second = { ...first, id: "S2", label: "Synthetic Society B", page: "14" };
+    result.conflicts = [{
+      point: "Potential guideline disagreement",
+      items: [
+        { recommendation: "Synthetic source A recommends the intervention.", citation: first },
+        { recommendation: "Synthetic source B does not recommend the intervention.", citation: second },
+      ],
+    }];
+    render(<AnalysisResult result={result} />);
+    const section = screen.getByRole("region", { name: "Guideline disagreement" });
+    expect(within(section).getByText("Synthetic source A recommends the intervention.")).toBeTruthy();
+    expect(within(section).getByText("Synthetic source B does not recommend the intervention.")).toBeTruthy();
+    expect(within(section).getByText(/Synthetic Society 2024/)).toBeTruthy();
+    expect(within(section).getByText(/Synthetic Society B/)).toBeTruthy();
+    expect(screen.getByRole("note").textContent).toMatch(/Decision support only; requires clinical review/);
+  });
+
   it("keeps rejected statements, draft quotes and issues inside a collapsed, explicitly excluded disclosure", async () => {
     const { container } = render(<AnalysisResult result={pipelineResult()} />); const user = userEvent.setup();
     const summary = screen.getByText("Unverified (not shown as answers) (1)");
@@ -40,22 +107,37 @@ describe("structured guideline result rendering", () => {
     expect(within(disclosure).getByText(/Do not use them as answers/)).toBeTruthy();
   });
 
-  it("renders Not covered as a separate list, warnings and the clinical disclaimer", () => {
-    const result = pipelineResult(); render(<AnalysisResult result={result} />);
+  it("renders Not covered as a separate list with a safe reason category, warnings and the clinical disclaimer", () => {
+    const result = pipelineResult(); result.problems[1].reason = "nothing_retrieved"; render(<AnalysisResult result={result} />);
     const notCovered = screen.getByRole("region", { name: "Not covered" });
-    expect(within(notCovered).getByRole("listitem").textContent).toBe("Uncovered topic");
+    expect(within(notCovered).getByRole("listitem").textContent).toContain("Uncovered topic");
+    expect(within(notCovered).getByText("Nothing was retrieved from the loaded guidelines.")).toBeTruthy();
     expect(within(screen.getByRole("complementary", { name: "Warnings" })).getByText(result.warnings[0])).toBeTruthy();
     expect(screen.getByText(result.disclaimer)).toBeTruthy();
     expect(screen.getByText(/This does not mean the topic is unimportant or safe/)).toBeTruthy();
   });
 
-  it("keeps patient-specific checks separate and can suppress them for saved results", () => {
+  it.each([
+    ["nothing_retrieved", "Nothing was retrieved from the loaded guidelines."],
+    ["retrieved_unverified", "Sources were retrieved, but no statement could be verified."],
+    ["only_draft_sources", "Only draft sources were retrieved; no final source supported a verifiable statement."],
+  ] as const)("shows the safe %s reason category without model text", (reason, label) => {
+    const result = pipelineResult();
+    result.problems[1].reason = reason;
+    render(<AnalysisResult result={result} />);
+    const problem = screen.getByRole("region", { name: "Uncovered topic" });
+    expect(within(problem).getByText(label)).toBeTruthy();
+    expect(within(problem).queryByText(/PRIVATE_MODEL|REJECTED_STATEMENT/)).toBeNull();
+  });
+
+  it("keeps live patient checks visibly separate from evidence and can suppress them for saved results", () => {
     const result = pipelineResult(); const view = render(<AnalysisResult result={result} />);
-    const checks = screen.getByRole("complementary", { name: "Check against this patient" });
+    const checks = screen.getByRole("complementary", { name: "Live patient checks — not evidence" });
     expect(within(checks).getByText("PRIVATE_PATIENT_CHECK_MARKER")).toBeTruthy();
-    expect(within(checks).getByText(/Deterministic rule checks, not guideline evidence/)).toBeTruthy();
+    expect(within(checks).getByText(/deterministic checks against this patient, not guideline evidence/i)).toBeTruthy();
+    expect(screen.getByText("Verified recommendation").closest('[data-slot="card"]')!.contains(checks)).toBe(false);
     view.rerender(<AnalysisResult result={result} showPatientChecks={false} />);
-    expect(screen.queryByRole("complementary", { name: "Check against this patient" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Live patient checks — not evidence" })).toBeNull();
     expect(screen.queryByText("PRIVATE_PATIENT_CHECK_MARKER")).toBeNull();
   });
 
@@ -145,7 +227,7 @@ describe("safe copy and export", () => {
     render(<AnalysisActions result={pipelineResult()} />);
     fireEvent.click(screen.getByRole("button", { name: "Copy result" }));
     await act(async () => { await Promise.resolve(); });
-    expect(screen.getByRole("status").textContent).toBe("Copy failed. Allow clipboard access or use Export result.");
+    expect(screen.getByRole("status").textContent).toBe("Copy failed. Allow clipboard access or use an export button.");
     expect(screen.getByRole("button", { name: "Copy result" }).hasAttribute("disabled")).toBe(false);
     expect(screen.queryByText(/PRIVATE_BROWSER_ERROR/)).toBeNull();
     writeText.mockResolvedValue(undefined);
@@ -171,7 +253,7 @@ describe("safe copy and export", () => {
     expect(vi.getTimerCount()).toBe(timers);
   });
 
-  it("exports a safe downloadable text file and releases its object URL", async () => {
+  it("exports safe Markdown with config version, date, intended use, citations and DRAFT labels", async () => {
     vi.useFakeTimers(); let blob!: Blob;
     const create = vi.fn((value: Blob) => { blob = value; return "blob:synthetic-result"; });
     const revoke = vi.fn();
@@ -179,19 +261,74 @@ describe("safe copy and export", () => {
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revoke });
     const requested: HTMLAnchorElement[] = [];
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { requested.push(this); });
-    const result = pipelineResult(); const view = render(<AnalysisActions result={result} />);
-    fireEvent.click(screen.getByRole("button", { name: "Export result" }));
-    expect(create).toHaveBeenCalledOnce(); expect(blob.type).toBe("text/plain;charset=utf-8");
+    const result = pipelineResult(); result.configVersion = 7;
+    const view = render(<AnalysisActions result={result} sourceText="PRIVATE_CASE_TEXT" />);
+    fireEvent.click(screen.getByRole("button", { name: "Export Markdown" }));
+    expect(create).toHaveBeenCalledOnce(); expect(blob.type).toBe("text/markdown;charset=utf-8");
     expect(requested).toHaveLength(1);
-    expect(requested[0].download).toBe("guideline-result.txt"); expect(requested[0].href).toBe("blob:synthetic-result");
+    expect(requested[0].download).toBe("guideline-result.md"); expect(requested[0].href).toBe("blob:synthetic-result");
     expect(document.contains(requested[0])).toBe(false);
     vi.useRealTimers();
     const exported = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.onerror = reject; reader.readAsText(blob);
     });
-    expect(exported).toBe(formatAnalysisExport(result));
-    expect(exported).not.toMatch(/REJECTED_|PRIVATE_|RETRIEVED_EXCERPT_MARKER/);
+    expect(exported).toContain("Config version: v7");
+    expect(exported).toMatch(/Exported: \d{4}-\d{2}-\d{2}/);
+    expect(exported).toContain("Intended use: Decision support only; requires clinical review.");
+    expect(exported).toContain("DRAFT — not final");
+    expect(exported).toContain("[S1] Synthetic Society 2024");
+    expect(exported).not.toMatch(/REJECTED_|PRIVATE_CASE_TEXT|PRIVATE_PATIENT_CHECK_MARKER|RETRIEVED_EXCERPT_MARKER/);
     view.unmount(); expect(revoke).toHaveBeenCalledWith("blob:synthetic-result");
+  });
+
+  it("keeps question-mode problem topic labels in the Not covered export list", () => {
+    const result = pipelineResult();
+    result.problems[1].title = "Screening unavailable";
+    result.not_covered = [];
+    const exported = formatAnalysisExport(result);
+    expect(exported).toContain("Not covered:");
+    expect(exported).toContain("Screening unavailable");
+  });
+
+  it("does not export case topic labels for case-mode problems", () => {
+    const result = pipelineResult();
+    result.plan_source = "rules";
+    result.problems[1].title = "PRIVATE_CASE_TOPIC_MARKER";
+    result.not_covered = ["PRIVATE_CASE_TOPIC_MARKER"];
+    const exported = formatAnalysisExport(result);
+    expect(exported).not.toContain("PRIVATE_CASE_TOPIC_MARKER");
+    expect(exported).toContain("Problem 2");
+  });
+
+  it("uses saved-analysis config metadata in exports when the stored result omits it", () => {
+    const write = vi.fn();
+    const printWindow = { document: { open: vi.fn(), write, close: vi.fn() }, focus: vi.fn(), print: vi.fn(), opener: {} };
+    vi.spyOn(window, "open").mockReturnValue(printWindow as unknown as Window);
+    const result = pipelineResult();
+    render(<AnalysisResult result={result} configVersion={9} />);
+    fireEvent.click(screen.getByRole("button", { name: "Export PDF" }));
+    expect(write.mock.calls[0][0]).toContain("Config version: v9");
+  });
+
+  it("opens a safe print/PDF document and omits case text unless explicitly selected", () => {
+    const write = vi.fn(); const print = vi.fn(); const focus = vi.fn();
+    const printWindow = { document: { open: vi.fn(), write, close: vi.fn() }, focus, print, opener: {} };
+    vi.spyOn(window, "open").mockReturnValue(printWindow as unknown as Window);
+    const result = pipelineResult(); result.configVersion = 7;
+    const view = render(<AnalysisActions result={result} sourceText="PRIVATE_CASE_TEXT" />);
+    fireEvent.click(screen.getByRole("button", { name: "Export PDF" }));
+    const html = write.mock.calls[0][0] as string;
+    expect(html).toContain("Config version: v7");
+    expect(html).toContain("DRAFT — not final");
+    expect(html).toContain("Intended use: Decision support only; requires clinical review.");
+    expect(html).not.toContain("PRIVATE_CASE_TEXT");
+    expect(print).toHaveBeenCalledOnce();
+    expect(printWindow.opener).toBeNull();
+
+    fireEvent.click(screen.getByLabelText(/Include the original case\/question text/));
+    fireEvent.click(screen.getByRole("button", { name: "Export PDF" }));
+    expect(write.mock.calls[1][0]).toContain("PRIVATE_CASE_TEXT");
+    view.unmount();
   });
 
   it("uses guideline quotes rather than patient-derived paraphrases for case and case-follow-up exports", () => {

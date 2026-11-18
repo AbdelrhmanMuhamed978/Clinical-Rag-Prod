@@ -123,7 +123,7 @@ export function MyAnalyses({ workspaceId, userId }: { workspaceId: string; userI
               </div>
               <p className="text-xs text-slate-600">Opening a saved analysis does not add it to this conversation. Patient-specific checks and context are not saved; rerun a case before applying a saved statement.</p>
               {opened.result ? (
-                <div className="max-h-[60dvh] overflow-y-auto"><AnalysisResult result={opened.result} showPatientChecks={false} /></div>
+                <div className="max-h-[60dvh] overflow-y-auto"><AnalysisResult result={opened.result} configVersion={opened.configVersion} showPatientChecks={false} /></div>
               ) : (
                 <p className="text-sm text-slate-600">No verified result is stored for this run. Result storage was disabled, the analysis did not complete, or legacy unverified content was withheld.</p>
               )}

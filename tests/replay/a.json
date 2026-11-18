@@ -1,0 +1,12 @@
+{
+  "format": 1, "synthetic": true, "observation": "a", "captureKind": "new-reproduction-not-historical-recording",
+  "model": "Qwen/Qwen3-4B-Instruct-2507", "requestId": "373df70eca9648549b3b2dd3a1bb4ed4",
+  "problems": [{
+    "index": 1, "title": "What is the dummy kidney-function review marker in this synthetic protocol?",
+    "resolvedQuestion": "Synthetic kidney function marker in dialysis protocol",
+    "topic": ["dialy", "funct", "kidne", "marke", "proto", "synth"],
+    "sources": {"S1":"final-kidney", "S2":"final-pressure", "S3":"draft-kidney", "S4":"final-medication", "S5":"draft-pressure", "S6":"draft-medication"},
+    "output": {"response":"SOURCE: S1  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S3  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S4  \nRECOMMENDATION: Medication mentions do not confirm current exposure, dose, timing or indication.  \nQUOTE: Medication mentions do not confirm current exposure, dose, timing or indication.  \n\nSOURCE: S6  \nRECOMMENDATION: Medication mentions do not confirm current exposure, dose, timing or indication.  \nQUOTE: Medication mentions do not confirm current exposure, dose, timing or indication.", "finish_reason":"stop", "truncated":false},
+    "baseline": {"status":"ok", "verified":4, "excluded":0}, "expected": {"verified":4, "reasons":{}}
+  }]
+}

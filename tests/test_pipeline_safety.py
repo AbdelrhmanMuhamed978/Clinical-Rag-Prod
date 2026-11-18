@@ -40,6 +40,34 @@ def test_retrieval_and_generation_use_separate_credentials(monkeypatch):
     assert "Authorization" not in generate.headers
 
 
+def test_rerank_uses_the_colab_key_and_rejects_invalid_scores(monkeypatch):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"scores": [0.75]})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(P.httpx, "AsyncClient", lambda **kwargs: client_type(
+        transport=httpx.MockTransport(handler), **kwargs))
+    backend = P.Backend("http://backend", "workspace", generate_url="http://colab/generate",
+                        colab_key="colab-test-key")
+
+    assert asyncio.run(backend.rerank("user question", ["verified statement"])) == [0.75]
+    request = requests[0]
+    assert request.url.path == "/rerank"
+    assert request.headers["X-Colab-Key"] == "colab-test-key"
+    assert json.loads(request.content) == {"query": "user question", "passages": ["verified statement"]}
+
+    def invalid(request):
+        return httpx.Response(200, json={"scores": [1.5]})
+
+    monkeypatch.setattr(P.httpx, "AsyncClient", lambda **kwargs: client_type(
+        transport=httpx.MockTransport(invalid), **kwargs))
+    with pytest.raises(P.BackendError):
+        asyncio.run(backend.rerank("user question", ["verified statement"]))
+
+
 @pytest.mark.parametrize("metadata", [
     {"truncated": True, "finish_reason": "stop"},
     {"truncated": False, "finish_reason": "length"},

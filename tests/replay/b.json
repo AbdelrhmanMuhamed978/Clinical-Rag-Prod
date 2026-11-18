@@ -1,0 +1,18 @@
+{
+  "format": 1, "synthetic": true, "observation": "b", "captureKind": "new-reproduction-not-historical-recording",
+  "model": "Qwen/Qwen3-4B-Instruct-2507", "requestId": "a3c81922419d44598ae6d651573c67cb",
+  "problems": [
+    {"index":1, "title":"Septic shock and hypotension",
+     "sources":{"S1":"final-pressure", "S2":"draft-pressure", "S3":"draft-kidney", "S4":"final-medication", "S5":"final-kidney", "S6":"draft-medication"},
+     "output":{"response":"NOT_FOUND", "finish_reason":"stop", "truncated":false},
+     "baseline":{"status":"not_found", "verified":0, "excluded":0}, "expected":{"verified":0, "reasons":{"empty_draft":1}}},
+    {"index":2, "title":"Acute kidney injury in sepsis",
+     "sources":{"S1":"final-kidney", "S2":"final-medication", "S3":"final-pressure", "S4":"draft-kidney", "S5":"draft-pressure", "S6":"draft-medication"},
+     "output":{"response":"NOT_FOUND", "finish_reason":"stop", "truncated":false},
+     "baseline":{"status":"not_found", "verified":0, "excluded":0}, "expected":{"verified":0, "reasons":{"empty_draft":1}}},
+    {"index":3, "title":"VTE prophylaxis in sepsis",
+     "sources":{"S1":"final-pressure", "S2":"final-medication", "S3":"final-kidney", "S4":"draft-medication", "S5":"draft-pressure", "S6":"draft-kidney"},
+     "output":{"response":"NOT_FOUND", "finish_reason":"stop", "truncated":false},
+     "baseline":{"status":"not_found", "verified":0, "excluded":0}, "expected":{"verified":0, "reasons":{"empty_draft":1}}}
+  ]
+}

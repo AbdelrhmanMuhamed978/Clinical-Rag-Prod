@@ -2,8 +2,9 @@
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
-import { get, post } from "@/lib/api";
-import type { ConfigVersion, ConfigVersionDetails, ConfigVersionsResponse } from "@/lib/types";
+import { ApiError, get, post } from "@/lib/api";
+import { createRequestScope } from "@/lib/request-scope";
+import type { ConfigVersion, ConfigVersionDetails, ConfigVersionsResponse, TestCase, TestRun, TestRunResult, RunTestsResponse } from "@/lib/types";
 import { useAuth } from "@/providers/AuthProvider";
 import { boundConfigRun, composeWorkflowConfig, configActionErrors, parseWorkflowConfig, publishBlockingReason,
   sameWorkflowFields, validateWorkflowFields, workflowEditorState,
@@ -33,6 +34,7 @@ export default function WorkflowPage() {
 }
 
 type DraftSubmission = { configJson: string; publishedId: string; sourceId: string; fields: WorkflowFields };
+type TestSession = { configId: string; attempt: number; baseline: Record<string, string[]>; rows: TestRunResult[] };
 
 function WorkflowWorkspace({ workspaceId, userId }: { workspaceId: string; userId: string }) {
   const qc = useQueryClient();
@@ -48,11 +50,14 @@ function WorkflowWorkspace({ workspaceId, userId }: { workspaceId: string; userI
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<WorkflowErrors>({});
   const [notice, setNotice] = useState("");
+  const [testSession, setTestSession] = useState<TestSession | null>(null);
+  const testScope = useRef(createRequestScope());
   const mounted = useRef(false);
   const errorSummary = useRef<HTMLDivElement>(null);
   const stepHeading = useRef<HTMLHeadingElement>(null);
   const focusStep = useRef(false);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { mounted.current = true; const scope = testScope.current;
+    return () => { mounted.current = false; scope.cancel(); }; }, []);
   useEffect(() => { if (focusStep.current) { stepHeading.current?.focus(); focusStep.current = false; } }, [activeStep]);
   const dirty = !!editor && !sameWorkflowFields(editor.fields, editor.savedFields);
   useUnsavedChanges(dirty);
@@ -111,10 +116,55 @@ function WorkflowWorkspace({ workspaceId, userId }: { workspaceId: string; userI
       setNotice(`Restored as draft v${version.version}. Published is unchanged; fresh tests are required.`); refresh();
     },
   });
+  const runTests = useMutation({
+    mutationFn: async (configId: string) => {
+      const operation = testScope.current.start();
+      try {
+        const cases = await get<TestCase[]>(`/api/workspaces/${workspaceId}/tests`, { signal: operation.signal });
+        if (!cases.length) throw new ApiError(400, "Workspace has no test cases; add a case and run tests.");
+        if (cases.length > 10) throw new ApiError(400, "Run at most 10 cases per request. Use the Tests page to run bounded subsets, then rerun the full current suite before publishing.");
+        const histories = await Promise.all(cases.map(c => get<TestRun[]>(`/api/workspaces/${workspaceId}/tests/runs/${c.id}`, { signal: operation.signal })));
+        if (!operation.isCurrent()) throw new DOMException("Test request cancelled.", "AbortError");
+        setTestSession({ configId, attempt: Date.now(), baseline: Object.fromEntries(cases.map((c, index) => [c.id, histories[index].map(run => run.id)])),
+          rows: cases.map(c => ({ id: "", caseId: c.id, caseName: c.name, status: "queued", durationMilliseconds: 0 })) });
+        return await post<RunTestsResponse>(`/api/workspaces/${workspaceId}/tests/run`, { configId, caseIds: cases.map(c => c.id) }, { signal: operation.signal });
+      } finally { operation.finish(); }
+    },
+    onSuccess: (response, configId) => {
+      if (!mounted.current) return;
+      setTestSession(current => current?.configId === configId ? { ...current, rows: response.results } : current);
+      setNotice(`Tests finished for the selected draft. Publication uses the refreshed server gate, not the run response.`);
+    },
+    onSettled: async () => {
+      if (!mounted.current) return;
+      // Keep actions disabled until the server gate has been fetched, on success AND failure.
+      await qc.invalidateQueries({ queryKey: versionsKey });
+      await qc.invalidateQueries({ queryKey: ["tests", workspaceId] });
+    },
+  });
+  const testProgress = useQuery({
+    queryKey: ["test-progress", workspaceId, userId, testSession?.attempt],
+    enabled: runTests.isPending && !!testSession,
+    refetchInterval: runTests.isPending ? 1000 : false,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const session = testSession!;
+      const rows = await Promise.all(session.rows.map(async row => {
+        const history = await get<TestRun[]>(`/api/workspaces/${workspaceId}/tests/runs/${row.caseId}`, { signal });
+        const latest = history.find(run => run.configId === session.configId && !session.baseline[row.caseId].includes(run.id));
+        return latest ? { ...row, ...latest } : row;
+      }));
+      return { attempt: session.attempt, rows };
+    },
+  });
+  // Polling affects display only; no client comparison or cached progress can enable publication.
+  const progressRows = runTests.isPending && testProgress.data && testProgress.data.attempt === testSession?.attempt
+    ? testProgress.data.rows : testSession?.rows ?? [];
   const lifecyclePending = publish.isPending || discard.isPending || rollback.isPending;
-  const busy = saveDraft.isPending || lifecyclePending;
+  const busy = saveDraft.isPending || lifecyclePending || runTests.isPending;
   const mutationError = saveDraft.error || publish.error || discard.error || rollback.error;
-  const errorMessages = [...Object.values(formErrors), ...(mutationError ? configActionErrors(mutationError) : [])];
+  const errorMessages = [...Object.values(formErrors), ...(mutationError ? configActionErrors(mutationError) : []),
+    ...(runTests.error ? [runTests.error instanceof ApiError ? runTests.error.message : "Tests could not be completed. Refresh the server gate and retry."] : [])];
   useEffect(() => { if (Object.keys(formErrors).length || mutationError) errorSummary.current?.focus(); }, [formErrors, mutationError]);
 
   // Initialize exactly once per published ID, with no synchronization effect tied to parsed JSON or keystrokes.
@@ -122,11 +172,11 @@ function WorkflowWorkspace({ workspaceId, userId }: { workspaceId: string; userI
   if (cfg && parsed && (!editor || (!dirty && !busy && editor.publishedId !== cfg.id))) setEditor(workflowEditorState(cfg, cfg.id, parsed));
 
   const stalePublished = !!editor && !!cfg && editor.publishedId !== cfg.id;
-  const publishReason = publishBlockingReason(selected, role, dirty, versionsQuery.isFetching || versionsQuery.isError);
+  const publishReason = publishBlockingReason(selected, role, dirty, runTests.isPending || versionsQuery.isFetching || versionsQuery.isError);
   const sourceDetails = versions.find(version => version.id === editor?.source.id && version.configJson === editor.source.configJson);
   const run = dirty ? null : boundConfigRun(sourceDetails);
   const completedSteps = run?.completedSteps ?? [];
-  function clearErrors() { setFormErrors({}); saveDraft.reset(); publish.reset(); discard.reset(); rollback.reset(); }
+  function clearErrors() { setFormErrors({}); saveDraft.reset(); publish.reset(); discard.reset(); rollback.reset(); runTests.reset(); }
   function updateField(key: WorkflowField, value: string) {
     setEditor(current => current ? { ...current, fields: { ...current.fields, [key]: value } } : current);
     setFormErrors(previous => { const next = { ...previous }; delete next[key]; return next; });
@@ -169,7 +219,7 @@ function WorkflowWorkspace({ workspaceId, userId }: { workspaceId: string; userI
     </p>
     <p role="status" className="text-sm text-muted-foreground">{notice}</p>
     <nav aria-label="Workflow steps">
-      <ol className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {STEPS.map(step => <li key={step.id}>
           <Button type="button" variant="outline" aria-current={activeStep === step.id ? "step" : undefined}
             aria-controls="workflow-settings-panel" className={`relative h-auto min-h-40 w-full flex-col whitespace-normal p-4 text-center focus-visible:outline-2 focus-visible:outline-offset-2 ${activeStep === step.id ? "border-primary bg-accent" : ""}`}
@@ -219,7 +269,19 @@ function WorkflowWorkspace({ workspaceId, userId }: { workspaceId: string; userI
         if (!selected || !isOwner || busy) return;
         if (window.confirm(`Restore v${selected.version} as a new draft? Published stays unchanged; fresh tests are required.${dirty ? " Unsaved configuration edits will be lost." : ""}`)) rollback.mutate(selected.version);
       }}
-      onRunTests={() => { /* Navigate to Tests page to run tests against this draft. */ }}
+      onRunTests={() => { if (selected?.status === "draft" && canEdit && !busy) { runTests.reset(); setTestSession(null); runTests.mutate(selected.id); } }}
     />
+    {testSession && <section className="space-y-3 rounded-xl border bg-card p-5" aria-labelledby="draft-test-heading">
+      <h2 id="draft-test-heading" className="text-lg font-semibold">Draft test progress</h2>
+      <p className="text-sm">Configuration: {testSession.configId}. {progressRows.filter(row => row.status === "passed" || row.status === "failed").length} of {progressRows.length} completed.</p>
+      <progress aria-labelledby="draft-test-heading" className="h-3 w-full" max={Math.max(1, progressRows.length)}
+        value={progressRows.filter(row => row.status === "passed" || row.status === "failed").length} />
+      {testProgress.isError && runTests.isPending && <p className="text-sm">Progress is temporarily unavailable. The run is still pending; publication remains blocked.</p>}
+      <ul className="space-y-3">{progressRows.map(row => <li key={row.caseId} className="rounded-lg border p-3">
+        <p className="font-medium">{row.caseName}</p><p className="text-sm">{row.status}{row.failureCode ? ` (${row.failureCode})` : ""}</p>
+        {row.diff && <p className="mt-2 whitespace-pre-wrap text-sm">{row.diff}</p>}
+      </li>)}</ul>
+      <p className="text-sm text-muted-foreground">Diff positions refer to expectation entries and result problems, without storing clinical text. Tests do not establish clinical validity.</p>
+    </section>}
   </div>;
 }

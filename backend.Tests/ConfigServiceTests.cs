@@ -207,7 +207,7 @@ public class ConfigServiceTests
 
         var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.PublishAsync(workspaceId, draft.Id));
 
-        Assert.Contains("no test run", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("no_cases", Assert.IsType<ConfigLifecycleException>(error).Code);
         Assert.Equal("published", published.Status);
         Assert.Equal("draft", draft.Status);
     }

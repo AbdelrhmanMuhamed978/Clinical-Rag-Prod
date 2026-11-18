@@ -1,0 +1,50 @@
+{
+  "format":1, "synthetic":true, "captureKind":"recorded-context-live-model-comparison", "retrievalRerun":false,
+  "gpu":"Tesla T4", "embeddingModel":"pritamdeka/S-PubMedBert-MS-MARCO",
+  "sourceArchiveSha256":"aa3ee8cd7f7f704a1eaf93f737780730293ea57d062e3ae1f77a5f6aba742473",
+  "payloadSha256": {
+    "captured": {
+      "a-1":"c83bc22e779ea1900017905086f3121c268ecea26c799ce16a8df72d64c7e426",
+      "b-1":"c88b6a652b74735a17be72dac03c9b8c55a14f748db22d35d233bc131f704814",
+      "b-2":"9eb7a4fa02d581362f4a33893387f1471aefe1e59d9b2873a5667a8e619cae67",
+      "b-3":"17b4e3a7c5dcecf7cb35990b2ac290ca1fde5b85e1d53da8e14d5e62224640a8",
+      "c-1":"baeffd57184fc68642b89bab4dd89ea8a2d795069b9db01674a45c45a2b06c66"
+    },
+    "revised": {
+      "a-1":"7ab61c9d31e1c47e0e4b0a6e3d36b20051cbd55fda78b5f94cd3e64f78056c68",
+      "c-1":"9e7b5c489f6b99533cfcccae4fcd5e51aaa76dfe19fe9712598bcbfccaeb3484"
+    }
+  },
+  "runs": [
+    {"model":"Qwen/Qwen3-4B-Instruct-2507", "bundle":"captured", "pairs":[
+      {"id":"a-1", "outputRef":"a-1", "expected":{"candidates":4,"verified":4,"reasons":{}}},
+      {"id":"b-1", "outputRef":"b-1", "expected":{"candidates":0,"verified":0,"reasons":{"empty_draft":1}}},
+      {"id":"b-2", "outputRef":"b-2", "expected":{"candidates":0,"verified":0,"reasons":{"empty_draft":1}}},
+      {"id":"b-3", "outputRef":"b-3", "expected":{"candidates":0,"verified":0,"reasons":{"empty_draft":1}}},
+      {"id":"c-1", "outputRef":"c-1", "expected":{"candidates":4,"verified":4,"reasons":{}}}
+    ]},
+    {"model":"Qwen/Qwen3-4B-Instruct-2507", "bundle":"revised", "pairs":[
+      {"id":"a-1", "output":{"response":"SOURCE: S1  \nRECOMMENDATION: The dummy kidney-function review marker is GREEN.  \nQUOTE: The dummy kidney-function review marker is GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.  \n\nSOURCE: S3  \nRECOMMENDATION: The dummy kidney-function review marker is PENDING-GREEN.  \nQUOTE: The dummy kidney-function review marker is PENDING-GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":2,"verified":2,"reasons":{}}},
+      {"id":"c-1", "output":{"response":"SOURCE: S4  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury. The dummy kidney-function review marker is PENDING-GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.  \n\nSOURCE: S4  \nRECOMMENDATION: Baseline measurements, changes over time, and relevant clinical assessment are not supplied by the document.  \nQUOTE: Baseline measurements, changes over time and relevant clinical assessment are not supplied by this document. The synthetic case below must not be used as real patient data or to certify clinical performance.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":2,"verified":1,"reasons":{"negation_conflict":1}}}
+    ]},
+    {"model":"Qwen/Qwen3-8B-AWQ", "bundle":"captured", "pairs":[
+      {"id":"a-1", "output":{"response":"SOURCE: S1  \nRECOMMENDATION: A synthetic kidney-function review marker is suggested.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury. The dummy kidney-function review marker is GREEN.  \n\nSOURCE: S3  \nRECOMMENDATION: A synthetic kidney-function review marker is suggested.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury. The dummy kidney-function review marker is PENDING-GREEN.  \n\nSOURCE: S5  \nRECOMMENDATION: A synthetic low-pressure review marker is suggested.  \nQUOTE: An isolated low systolic blood pressure does not establish shock. The dummy low-pressure review marker is PENDING-BLUE.  \n\nSOURCE: S2  \nRECOMMENDATION: A synthetic low-pressure review marker is suggested.  \nQUOTE: An isolated low systolic blood pressure does not establish shock. The dummy low-pressure review marker is BLUE.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":4,"verified":4,"reasons":{}}},
+      {"id":"b-1", "output":{"response":"SOURCE: S1  \nRECOMMENDATION: A low-pressure value should not automatically stop any medicine.  \nQUOTE: This must not automatically stop any medicine.  \n\nSOURCE: S2  \nRECOMMENDATION: A low-pressure value should not automatically stop any medicine.  \nQUOTE: This must not automatically stop any medicine.  \n\nSOURCE: S3  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S4  \nRECOMMENDATION: Medication mentions do not confirm current exposure or indication.  \nQUOTE: Medication mentions do not confirm current exposure, dose, timing or indication.  \n\nSOURCE: S5  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":5,"verified":0,"reasons":{"stronger_than_source":2,"negation_conflict":2,"topic_mismatch":3}}},
+      {"id":"b-2", "output":{"response":"SOURCE: S1  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S3  \nRECOMMENDATION: An isolated low systolic blood pressure does not establish shock.  \nQUOTE: An isolated low systolic blood pressure does not establish shock.  \n\nSOURCE: S5  \nRECOMMENDATION: An isolated low systolic blood pressure does not establish shock.  \nQUOTE: An isolated low systolic blood pressure does not establish shock.  \n\nSOURCE: S4  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":4,"verified":2,"reasons":{"topic_mismatch":2}}},
+      {"id":"b-3", "outputRef":"b-3", "expected":{"candidates":0,"verified":0,"reasons":{"empty_draft":1}}},
+      {"id":"c-1", "output":{"response":"SOURCE: S1  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S4  \nRECOMMENDATION: An isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S3  \nRECOMMENDATION: Medication mentions do not confirm current exposure, dose, timing or indication.  \nQUOTE: Medication mentions do not confirm current exposure, dose, timing or indication.  \n\nSOURCE: S6  \nRECOMMENDATION: Medication mentions do not confirm current exposure, dose, timing or indication.  \nQUOTE: Medication mentions do not confirm current exposure, dose, timing or indication.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":4,"verified":4,"reasons":{}}}
+    ]},
+    {"model":"Qwen/Qwen3-8B-AWQ", "bundle":"revised", "pairs":[
+      {"id":"a-1", "output":{"response":"SOURCE: S1  \nRECOMMENDATION: The dummy kidney-function review marker is GREEN.  \nQUOTE: The dummy kidney-function review marker is GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.  \n\nSOURCE: S3  \nRECOMMENDATION: The dummy kidney-function review marker is PENDING-GREEN.  \nQUOTE: The dummy kidney-function review marker is PENDING-GREEN. This label is arbitrary integration-test data, not a diagnostic or dosing instruction.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":2,"verified":2,"reasons":{}}},
+      {"id":"c-1", "output":{"response":"SOURCE: S4  \nRECOMMENDATION: The synthetic test protocol mentions that an isolated creatinine value does not establish acute kidney injury.  \nQUOTE: An isolated creatinine value does not establish acute kidney injury.  \n\nSOURCE: S4  \nRECOMMENDATION: The synthetic test protocol indicates that the kidney-function review marker is labeled as PENDING-GREEN.  \nQUOTE: The dummy kidney-function review marker is PENDING-GREEN.  \n\nSOURCE: S4  \nRECOMMENDATION: The synthetic test protocol states that baseline measurements and clinical assessment are not supplied by the document.  \nQUOTE: Baseline measurements, changes over time and relevant clinical assessment are not supplied by this document.  \n\nSOURCE: S4  \nRECOMMENDATION: The synthetic test protocol cautions that the label is arbitrary integration-test data and not a diagnostic or dosing instruction.  \nQUOTE: This label is arbitrary integration-test data, not a diagnostic or dosing instruction.","finish_reason":"stop","truncated":false},
+       "expected":{"candidates":4,"verified":4,"reasons":{}}}
+    ]}
+  ]
+}

@@ -2,12 +2,14 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using ClinicalRag.Api.Attributes;
 using ClinicalRag.Api.Data;
 using ClinicalRag.Api.Models;
 using ClinicalRag.Api.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -57,6 +59,8 @@ public class AnalysisController : ControllerBase
 
     [HttpPost]
     [WorkspaceAuthorize(WorkspaceRole.Editor)]
+    [AbuseLimited]
+    [RequestTimeout("analysis")]
     public async Task<IActionResult> Analyze(Guid workspaceId, [FromBody] AnalyzeDto dto)
     {
         var cancellationToken = HttpContext.RequestAborted;
@@ -73,7 +77,7 @@ public class AnalysisController : ControllerBase
             await PersistResultAsync(prepared.Run, safeResponse, prepared.StoreResult, prepared.CaseMode);
             Response.Headers.CacheControl = "no-store";
             timing.Success();
-            return Ok(safeResponse);
+            return Ok(WithRunMetadata(safeResponse, prepared.Run));
         }
         catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
         {
@@ -91,6 +95,8 @@ public class AnalysisController : ControllerBase
 
     [HttpPost("stream")]
     [WorkspaceAuthorize(WorkspaceRole.Editor)]
+    [AbuseLimited]
+    [RequestTimeout("analysis")]
     public async Task Stream(Guid workspaceId, [FromBody] AnalyzeDto dto)
     {
         var prepared = await PrepareAsync(workspaceId, dto, HttpContext.RequestAborted);
@@ -123,14 +129,16 @@ public class AnalysisController : ControllerBase
                         throw new InvalidDataException("Contradictory pipeline stream mode.");
                     authoritativeMode = eventMode;
                 }
+                var visibleData = data;
                 if (pipelineEvent.Event == "result")
                 {
                     await PersistResultAsync(prepared.Run, data, prepared.StoreResult, prepared.CaseMode);
+                    visibleData = WithRunMetadata(data, prepared.Run);
                     timing.Success();
                 }
 
                 await Response.WriteAsync($"event: {pipelineEvent.Event}\n", HttpContext.RequestAborted);
-                await Response.WriteAsync($"data: {data.GetRawText()}\n\n", HttpContext.RequestAborted);
+                await Response.WriteAsync($"data: {visibleData.GetRawText()}\n\n", HttpContext.RequestAborted);
                 await Response.Body.FlushAsync(HttpContext.RequestAborted);
                 if (pipelineEvent.Event is "result" or "error")
                 {
@@ -242,6 +250,18 @@ public class AnalysisController : ControllerBase
         bool StoreResult,
         bool CaseMode);
 
+    // Privacy storage is deliberately stricter than analysis mode: any
+    // explicit vitals/labs/drug dose/age/sex keeps a message out of default
+    // saved history even when the pipeline classifies it as a question.
+    private static readonly Regex PrivacyCaseFacts = new(
+        @"\b\d{1,3}\s*(?:year|yr|y)[- ]?old\b" +
+        @"|\b(?:blood pressure|bp)\s*[:=]?\s*\d{2,3}/\d{2,3}\b" +
+        @"|\b(?:hr|heart rate|rr|respiratory rate|spo2|o2 sat(?:uration)?|temperature|temp)\s*[:=]?\s*\d" +
+        @"|\b(?:hb|hemoglobin|haemoglobin|wbc|platelets?|creatinine|sodium|potassium|glucose|lactate|ph|pao2|fio2)\s*[:=]?\s*\d" +
+        @"|\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|units?|ml|mmol|meq)\b" +
+        @"|\b(?:male|female|man|woman|boy|girl)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private async Task<PreparedAnalysis> PrepareAsync(
         Guid workspaceId,
         AnalyzeDto dto,
@@ -282,7 +302,8 @@ public class AnalysisController : ControllerBase
             ruleSnapshot.CatalogRevision);
 
         var wordCount = Regex.Matches(dto.Message, @"\S+").Count;
-        var caseMode = wordCount >= 40 || history.Any(turn => Regex.Matches(turn.Question, @"\S+").Count >= 40);
+        var caseMode = wordCount >= 40 || PrivacyCaseFacts.IsMatch(dto.Message)
+            || history.Any(turn => Regex.Matches(turn.Question, @"\S+").Count >= 40);
         var configuredStoreResults = _configuration["Privacy:StoreResults"];
         var storeResult = configuredStoreResults == null
             ? !caseMode
@@ -308,6 +329,14 @@ public class AnalysisController : ControllerBase
         await _db.SaveChangesAsync(HttpContext.RequestAborted);
     }
 
+    private static JsonElement WithRunMetadata(JsonElement result, AnalysisRun run)
+    {
+        var node = JsonNode.Parse(result.GetRawText())!.AsObject();
+        node["runId"] = run.Id;
+        node["configVersion"] = run.ConfigVersion;
+        return JsonSerializer.SerializeToElement(node);
+    }
+
     public async Task<object> DoRetrieve(Guid workspaceId, string query, CancellationToken cancellationToken = default)
     {
         using var timing = OperationTelemetry.Start("retrieval.total", _log, query);
@@ -330,12 +359,18 @@ public class AnalysisController : ControllerBase
         var minRerank = RetrievalNumber(retrieval, "minRerank");
         var topK = RetrievalInteger(retrieval, "topK");
         var candidates = RetrievalInteger(retrieval, "candidates");
+        var allowSuperseded = await _db.Workspaces.AsNoTracking()
+            .Where(workspace => workspace.Id == workspaceId && workspace.DeletedAt == null)
+            .Select(workspace => workspace.AllowSupersededGuidelines)
+            .FirstOrDefaultAsync(cancellationToken);
 
         // Query planning/decomposition belongs to the verified Python pipeline.
-        // This endpoint embeds and retrieves exactly the focused query it receives.
-        var subQueries = new List<string> { query };
+        // This endpoint expands only the focused query it receives with
+        // deterministic domain synonyms; it never invents a patient fact.
+        var subQueries = QueryExpansion.Expand(query);
         var embedding = await _embeddings.EmbedAsync(subQueries, cancellationToken);
-        var ids = await _search.CandidatesAsync(workspaceId, query, embedding, candidates, cancellationToken);
+        var ids = await _search.CandidatesAsync(workspaceId, subQueries, embedding, candidates, cancellationToken);
+        var intent = QueryExpansion.IntentOf(query);
         if (ids.Count == 0)
             return new { context = "NOT_FOUND", chunks = new List<object>(), subQueries };
 
@@ -346,14 +381,24 @@ public class AnalysisController : ControllerBase
         var shortlist = ids.ToHashSet();
         var current = await _db.Chunks.AsNoTracking()
             .Where(chunk => chunk.WorkspaceId == workspaceId && shortlist.Contains(chunk.Id)
+                && !chunk.ReReviewRequired
                 && (chunk.Status == "accepted" || chunk.Status == "embedded")
                 && chunk.Embedding != null && chunk.Embedding.Length == embedding.Dimensions * sizeof(float)
-                && chunk.EmbeddingModel == embedding.Model)
-            .Select(chunk => new RetrievalChunk(chunk.Id, chunk.EmbeddingModel, chunk.Text, chunk.Section, chunk.SectionHierarchy, chunk.Page, chunk.Strength,
+                && chunk.EmbeddingModel == embedding.Model
+                && (allowSuperseded || chunk.Document == null || chunk.Document.GuidelineStatus != "superseded"))
+            .Select(chunk => new RetrievalChunk(chunk.Id, chunk.EmbeddingModel, chunk.Text, chunk.Section, chunk.SectionHierarchy, chunk.Page, chunk.Strength, chunk.Certainty,
                 chunk.Document == null ? null : chunk.Document.GuidelineStatus,
                 chunk.Document == null ? null : chunk.Document.Society,
                 chunk.Document == null ? null : chunk.Document.FileName,
-                chunk.Document == null ? null : chunk.Document.Year))
+                chunk.Document == null ? null : chunk.Document.Year,
+                chunk.Document == null ? null : chunk.Document.Title,
+                chunk.Document == null ? null : chunk.Document.Version,
+                chunk.Document == null ? null : chunk.Document.EffectiveDate,
+                chunk.Document == null ? null : chunk.Document.ReviewByDate,
+                chunk.Document == null ? null : chunk.Document.SourceUrl,
+                chunk.Document == null ? null : chunk.Document.PermissionNote,
+                chunk.Document == null ? null : chunk.Document.FootnoteMarkers,
+                chunk.Metadata, chunk.Type))
             .ToListAsync(cancellationToken);
         // SQL equality ignores trailing spaces even with BIN2 collation. Do not
         // accept a changed/invalid label from a warm cache on that weaker check.
@@ -366,7 +411,15 @@ public class AnalysisController : ControllerBase
         var rerankResponse = await _colab.RerankAsync(query,
             filtered.Select(chunk => RetrievalLimits.RerankPassage(chunk.Text, chunk.Section)).ToList(), cancellationToken).WaitAsync(cancellationToken);
         var rerankScores = RerankScores(rerankResponse, filtered.Count);
-        var reranked = filtered.Zip(rerankScores, (chunk, score) => (chunk, score))
+        var reranked = filtered.Zip(rerankScores, (chunk, score) =>
+            {
+                // The cross-encoder ranks the passage against the exact question.
+                // Intent alignment then removes the systematic advantage a narrow
+                // exception-only passage gets on a broad population question.
+                var penalty = QueryExpansion.NarrowPenalty(chunk.Metadata, chunk.Text, intent);
+                return (chunk, score: score - penalty,
+                    kind: ChunkMetadata.Kind(chunk.Metadata, chunk.Text, chunk.SectionHierarchy ?? chunk.Section));
+            })
             .Where(item => item.score >= minRerank)
             .OrderByDescending(item => item.score)
             .Take(topK)
@@ -379,21 +432,41 @@ public class AnalysisController : ControllerBase
         var unknownAsDraft = false;
         for (var index = 0; index < reranked.Count; index++)
         {
-            var (chunk, score) = reranked[index];
+            var (chunk, score, kind) = reranked[index];
+            var population = ChunkMetadata.Population(chunk.Metadata, chunk.Text) ?? "";
+            var recommendationId = ChunkMetadata.RecommendationId(chunk.Metadata) ?? "";
             var rawStatus = chunk.GuidelineStatus ?? "unknown";
-            var status = rawStatus.Equals("final", StringComparison.OrdinalIgnoreCase) ? "final" : "draft";
+            var status = rawStatus.Equals("final", StringComparison.OrdinalIgnoreCase) ? "final"
+                : rawStatus.Equals("superseded", StringComparison.OrdinalIgnoreCase) ? "superseded" : "draft";
             unknownAsDraft |= rawStatus.Equals("unknown", StringComparison.OrdinalIgnoreCase);
-            var society = chunk.Society ?? chunk.FileName ?? "";
+            var society = chunk.Society ?? "";
+            var title = chunk.Title ?? chunk.FileName ?? "";
+            var version = chunk.Version ?? "";
             var year = chunk.Year?.ToString() ?? "";
-            var section = chunk.SectionHierarchy ?? chunk.Section ?? "General";
-            var strength = chunk.Strength ?? "";
+            var citationLabel = CitationLabel(society, title, version, year, status);
+            var contextLabel = CitationContextLabel(society, title, version, year, status);
+            var section = CleanSection(chunk.SectionHierarchy ?? chunk.Section);
+            var strength = ChunkMetadata.Strength(chunk.Text, chunk.Strength) ?? "";
+            var certainty = ChunkMetadata.Certainty(chunk.Text, chunk.Certainty) ?? "";
             var strengthSuffix = string.IsNullOrEmpty(strength) ? "" : $" | {strength}";
+            var structureSuffix = kind == "clinical_consideration" ? "" : $" | kind:{kind}";
+            structureSuffix += string.IsNullOrEmpty(population) ? "" : $" | population:{population}";
+            var governanceSuffix = string.Join("", new[]
+            {
+                string.IsNullOrEmpty(chunk.EffectiveDate?.ToString("yyyy-MM-dd")) ? "" : $" | effective:{chunk.EffectiveDate:yyyy-MM-dd}",
+                string.IsNullOrEmpty(chunk.ReviewByDate?.ToString("yyyy-MM-dd")) ? "" : $" | review-by:{chunk.ReviewByDate:yyyy-MM-dd}",
+                string.IsNullOrEmpty(chunk.SourceUrl) ? "" : $" | source:{chunk.SourceUrl}"
+            });
             contextParts.Add(
-                $"[S{index + 1}] {society} {year} ({status.ToUpperInvariant()}) | {section} | p.{chunk.Page}{strengthSuffix}\n{chunk.Text}\n");
+                $"[S{index + 1}] {contextLabel} | {section}{structureSuffix} | p.{chunk.Page}{strengthSuffix}{governanceSuffix}\n{chunk.Text}\n");
             results.Add(new
             {
-                chunk_id = chunk.Id.ToString(), society, year, status, section,
-                page = chunk.Page, strength, text = chunk.Text,
+                chunk_id = chunk.Id.ToString(), society, title, file_name = chunk.FileName ?? "", version, year, status, superseded = status == "superseded",
+                effective_date = chunk.EffectiveDate?.ToString("yyyy-MM-dd"), review_by = chunk.ReviewByDate?.ToString("yyyy-MM-dd"),
+                source_url = chunk.SourceUrl, permission_note = chunk.PermissionNote,
+                citation_label = citationLabel, section, page = chunk.Page, strength, certainty, text = chunk.Text,
+                kind, population, recommendation_id = recommendationId,
+                footnote_markers = FootnoteMarkers(chunk.FootnoteMarkers, chunk.Page),
                 rerank_score = Math.Round(score, 4)
             });
         }
@@ -433,8 +506,111 @@ public class AnalysisController : ControllerBase
                 ? (int)number : rule.GetProperty("default").GetInt32();
     }
 
+    private static string CleanSection(string? value)
+    {
+        var clean = ChunkMetadata.CleanSection(value);
+        return string.IsNullOrWhiteSpace(clean) ? "General" : clean;
+    }
+
+    private static object[] FootnoteMarkers(string? json, int page)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            var markers = JsonSerializer.Deserialize<JsonElement>(json);
+            if (markers.ValueKind != JsonValueKind.Array) return [];
+            return markers.EnumerateArray()
+                .Where(marker => marker.ValueKind == JsonValueKind.Object
+                    && marker.TryGetProperty("page", out var markerPage) && markerPage.TryGetInt32(out var value)
+                    && value == page
+                    && marker.TryGetProperty("marker", out var letter) && letter.ValueKind == JsonValueKind.String
+                    && marker.TryGetProperty("offset", out var offset) && offset.TryGetInt32(out _)
+                    && marker.TryGetProperty("context", out var context) && context.ValueKind == JsonValueKind.String)
+                .Select(marker => (object)new
+                {
+                    marker = marker.GetProperty("marker").GetString(),
+                    offset = marker.GetProperty("offset").GetInt32(),
+                    context = marker.GetProperty("context").GetString() is { Length: > 200 } text ? text[..200] : marker.GetProperty("context").GetString()
+                })
+                .ToArray();
+        }
+        catch (JsonException) { return []; }
+    }
+
+    private static string CitationLabel(string society, string title, string version, string year, string status)
+    {
+        var label = CitationBase(society, title, version, year);
+        var suffix = new List<string>();
+        if (year.Length > 0) suffix.Add(year);
+        if (status.Length > 0) suffix.Add(status.ToUpperInvariant());
+        return suffix.Count == 0 ? label : $"{label} ({string.Join(", ", suffix)})";
+    }
+
+    private static string CitationContextLabel(string society, string title, string version, string year, string status)
+    {
+        var label = CitationBase(society, title, version, year);
+        return status.Length == 0 ? label : $"{label} ({status.ToUpperInvariant()})";
+    }
+
+    private static string CitationBase(string society, string title, string version, string year)
+    {
+        society = SquashName(society);
+        title = CleanTitle(title, year, version);
+        version = version.Trim();
+        if (version.Length > 0 && !string.Equals(version.TrimStart('v', 'V'), year, StringComparison.Ordinal))
+        {
+            var versionLabel = version.StartsWith('v') || version.StartsWith('V') ? version : $"v{version}";
+            if (!NormalizeName(title).Contains(NormalizeName(versionLabel), StringComparison.Ordinal)
+                && !NormalizeName(society).Contains(NormalizeName(versionLabel), StringComparison.Ordinal))
+                title = title.Length > 0 ? $"{title} {versionLabel}" : versionLabel;
+        }
+        if (society.Length == 0) return title;
+        return NormalizeName(title).Contains(NormalizeName(society), StringComparison.Ordinal)
+            ? title : $"{society}, {title}";
+    }
+
+    private static string SquashName(string value)
+    {
+        var text = Regex.Replace(System.Net.WebUtility.HtmlDecode(value ?? ""), @"\s+", " ").Trim(' ', ',', ';');
+        var words = new List<string>();
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            if (words.Count == 0 || !StringComparer.Ordinal.Equals(NormalizeName(word), NormalizeName(words[^1])))
+                words.Add(word);
+        return string.Join(" ", words);
+    }
+
+    private static string CleanTitle(string title, string year, string version)
+    {
+        var text = SquashName(title);
+        text = Regex.Replace(text, @"\.pdf$", "", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"^\d{6,}[-_ ]*", "");
+        text = Regex.Replace(text, @"(?:^|[-_ ])(?:eng|en)$", "", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"[-_ ](?:final|draft|superseded)$", "", RegexOptions.IgnoreCase);
+        text = text.Replace('_', ' ');
+        text = Regex.Replace(text, @"\b\d{7,}\b", " ");
+        if (year.Length > 0)
+        {
+            text = Regex.Replace(text, $@"\b{Regex.Escape(year)}\b", " ");
+            text = Regex.Replace(text, $@"(?:[\s,;_-]*{Regex.Escape(year)})+\s*$", "").Trim(' ', ',', ';', '-', '_');
+        }
+        if (version.Length > 0)
+        {
+            var versionLabel = version.StartsWith('v') || version.StartsWith('V') ? version : $"v{version}";
+            text = Regex.Replace(text, $@"\b{Regex.Escape(versionLabel)}\b", " ", RegexOptions.IgnoreCase);
+            text = Regex.Replace(text, $@"(?:[\s,;_-]*{Regex.Escape(versionLabel)})+\s*$", "", RegexOptions.IgnoreCase)
+                .Trim(' ', ',', ';', '-', '_');
+        }
+        text = Regex.Replace(text, @"\s+", " ").Trim(' ', ',', ';', '-', '_');
+        return text.Length == 0 ? "Untitled guideline" : text;
+    }
+
+    private static string NormalizeName(string value) =>
+        Regex.Replace(value.ToLowerInvariant(), @"[^\p{L}\p{N}]+", "");
+
     private sealed record RetrievalChunk(Guid Id, string? EmbeddingModel, string Text, string? Section, string? SectionHierarchy,
-        int Page, string? Strength, string? GuidelineStatus, string? Society, string? FileName, int? Year);
+        int Page, string? Strength, string? Certainty, string? GuidelineStatus, string? Society, string? FileName, int? Year,
+        string? Title, string? Version, DateTime? EffectiveDate, DateTime? ReviewByDate, string? SourceUrl, string? PermissionNote,
+        string? FootnoteMarkers, string? Metadata, string? Type);
 
     private static IReadOnlyList<double> RerankScores(JsonElement response, int expectedCount)
     {

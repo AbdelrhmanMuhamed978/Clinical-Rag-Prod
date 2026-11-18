@@ -57,7 +57,8 @@ public class WorkspaceManagementApiTests(CustomWebApplicationFactory factory) : 
         {
             using var client = factory.CreateClient(); SignIn(data.Owner);
             Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/workspaces/{data.Workspace.Id}/invite", new { email = invitee.Email, role = "editor" })).StatusCode);
-            SignIn(invitee, false); Assert.Empty(await client.GetFromJsonAsync<Workspace[]>("/api/workspaces") ?? []);
+            SignIn(invitee, false);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/workspaces")).StatusCode);
             SignIn(invitee); var workspaces = await client.GetFromJsonAsync<Workspace[]>("/api/workspaces"); Assert.Equal(data.Workspace.Id, Assert.Single(workspaces!).Id);
             var access = await client.GetFromJsonAsync<JsonElement>($"/api/workspaces/{data.Workspace.Id}/rules/access"); Assert.Equal("editor", access.GetProperty("role").GetString());
         }

@@ -63,6 +63,12 @@ public class RuleApprovalTests : IClassFixture<CustomWebApplicationFactory>
             Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
             var reviewedRule = await approved.Content.ReadFromJsonAsync<JsonElement>();
             Assert.Equal(ownerId, reviewedRule.GetProperty("reviewedBy").GetGuid());
+            var snapshot = await client.GetAsync($"/api/workspaces/{workspaceId}/rules/approved-snapshot");
+            Assert.Equal(HttpStatusCode.OK, snapshot.StatusCode);
+            var snapshotJson = await snapshot.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Contains(snapshotJson.GetProperty("rules").EnumerateArray(),
+                item => item.GetProperty("id").GetString() == "review-required");
+            Assert.True(snapshotJson.GetProperty("catalogRevision").GetInt32() >= 0);
             var edited = await client.PatchAsJsonAsync($"/api/workspaces/{workspaceId}/rules/{id}", new { title = "Changed medication check", expectedRevision = reviewedRule.GetProperty("revision").GetInt32() });
             Assert.True(edited.StatusCode == HttpStatusCode.OK, await edited.Content.ReadAsStringAsync());
             var editedRule = await edited.Content.ReadFromJsonAsync<JsonElement>();

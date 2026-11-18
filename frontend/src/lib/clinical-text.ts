@@ -1,4 +1,4 @@
-import asset from "../../../clinical-text.json";
+import asset from "../../../python-backend/clinical-text.json";
 
 const whitespace = new Set(asset.whitespace);
 const fold = new Map<number, string>(Object.entries(asset.casefold_expansions).map(([key, value]) => [Number(key), value]));

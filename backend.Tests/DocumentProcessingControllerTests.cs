@@ -24,7 +24,8 @@ public class DocumentProcessingControllerTests
         using var store = new DocumentTestStore(); await using var db = store.CreateContext();
         using var content = new MemoryStream("%PDF-1.7 synthetic"u8.ToArray());
         var result = Assert.IsType<OkObjectResult>(await store.Controller(db).Upload(store.Workspace.Id,
-            Pdf(content, Path.Combine("..", "untrusted", "Guideline.PDF")), "  Synthetic Society  ", 2024, " FINAL "));
+            Pdf(content, Path.Combine("..", "untrusted", "Guideline.PDF")), "  Synthetic Society  ",
+            null, null, 2024, " FINAL ", null, null, null, null));
         var view = Assert.IsType<DocumentView>(result.Value);
         Assert.Equal("uploaded", view.Status); Assert.Equal("Synthetic Society", view.Society); Assert.Equal(2024, view.Year); Assert.Equal("final", view.GuidelineStatus);
         Assert.Equal("Guideline.PDF", view.FileName); Assert.Equal(DocumentChunkCounts.Empty, view.ChunkCounts);
@@ -48,7 +49,8 @@ public class DocumentProcessingControllerTests
     {
         using var store = new DocumentTestStore(); await using var db = store.CreateContext();
         using var content = new MemoryStream("%PDF-1.7 synthetic"u8.ToArray());
-        Assert.IsType<BadRequestObjectResult>(await store.Controller(db).Upload(store.Workspace.Id, Pdf(content), society, year, status));
+        Assert.IsType<BadRequestObjectResult>(await store.Controller(db).Upload(store.Workspace.Id, Pdf(content),
+            society, null, null, year, status, null, null, null, null));
         Assert.Empty(await db.Documents.ToListAsync()); Assert.Empty(Directory.GetFiles(store.Uploads));
     }
 
@@ -60,7 +62,8 @@ public class DocumentProcessingControllerTests
     public async Task Invalid_file_content_extension_or_size_creates_no_upload(string body, string fileName, long length)
     {
         using var store = new DocumentTestStore(); await using var db = store.CreateContext(); using var content = new MemoryStream(Encoding.UTF8.GetBytes(body));
-        Assert.IsType<BadRequestObjectResult>(await store.Controller(db).Upload(store.Workspace.Id, Pdf(content, fileName, length), "Synthetic Society", 2024, "draft"));
+        Assert.IsType<BadRequestObjectResult>(await store.Controller(db).Upload(store.Workspace.Id,
+            Pdf(content, fileName, length), "Synthetic Society", null, null, 2024, "draft", null, null, null, null));
         Assert.Empty(await db.Documents.ToListAsync()); Assert.Empty(Directory.GetFiles(store.Uploads));
     }
 

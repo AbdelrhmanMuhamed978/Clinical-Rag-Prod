@@ -88,6 +88,20 @@ public class PipelineClientTests
         Assert.True(result.TryGetProperty("problems", out _));
     }
 
+    [Theory]
+    [InlineData(401, "auth")]
+    [InlineData(403, "auth")]
+    [InlineData(408, "timeout")]
+    [InlineData(504, "timeout")]
+    [InlineData(503, "pipeline_unavailable")]
+    public async Task Pipeline_failures_keep_fixed_classification_without_upstream_bodies(int status, string code)
+    {
+        var client = Client(_ => Task.FromResult(new HttpResponseMessage((HttpStatusCode)status)
+            { Content = new StringContent("UPSTREAM_PRIVATE_MARKER", Encoding.UTF8, "text/plain") }));
+        var failure = await Assert.ThrowsAsync<DependencyUnavailableException>(() => client.AnalyzeAsync(Request(), "Bearer synthetic-test"));
+        Assert.Equal(code, failure.FailureCode); Assert.DoesNotContain("UPSTREAM_PRIVATE_MARKER", failure.Message);
+    }
+
     [Fact]
     public async Task Pipeline_transport_reads_multiline_progress_and_a_final_result()
     {

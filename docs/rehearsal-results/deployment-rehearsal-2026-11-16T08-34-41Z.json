@@ -1,0 +1,22 @@
+{
+    "generatedAtUtc":  "2026-11-16T08:34:41.2567337Z",
+    "server":  "localhost\\MSSQLSERVER2025",
+    "status":  "failed",
+    "databasesKept":  false,
+    "migration":  {
+
+                  },
+    "backupRestore":  {
+
+                      },
+    "fullText":  {
+
+                 },
+    "colab":  {
+
+              },
+    "reembedding":  {
+
+                    },
+    "error":  "The script failed due to call depth overflow."
+}

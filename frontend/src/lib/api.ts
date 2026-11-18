@@ -216,7 +216,7 @@ export async function api<T = unknown>(path: string, init?: RequestInit): Promis
 }
 
 export const get = <T = unknown>(p: string, init?: Pick<RequestInit, "signal" | "cache">) => api<T>(p, init);
-export const post = <T = unknown>(p: string, body?: unknown) => api<T>(p, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+export const post = <T = unknown>(p: string, body?: unknown, init?: Pick<RequestInit, "signal">) => api<T>(p, { ...init, method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 export const postForm = <T = unknown>(p: string, formData: FormData) => api<T>(p, { method: "POST", body: formData });
 export const patch = <T = unknown>(p: string, body?: unknown, init?: Pick<RequestInit, "signal">) => api<T>(p, { ...init, method: "PATCH", body: body === undefined ? undefined : JSON.stringify(body) });
 export const del = <T = unknown>(p: string) => api<T>(p, { method: "DELETE" });
